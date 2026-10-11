@@ -1,0 +1,45 @@
+name: TradingView rating
+
+on:
+  schedule:
+    # Каждые 5 минут — чаще GitHub не запускает. Сдвиг на :02, :07, … — мимо пиковой нагрузки в начале часа.
+    - cron: "2-59/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      summary:
+        description: "Прислать сводку по всем бумагам"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+# Проверки идут строго по одной, чтобы не было гонки за state.json.
+concurrency:
+  group: tv-rating
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check ratings
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 bot.py ${{ inputs.summary && '--summary' || '' }}
+
+      # Оценки хранятся в state.json в репозитории; коммит только когда оценка сменилась.
+      - name: Save state
+        run: |
+          git add state.json
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update ratings state"
+            git pull --rebase
+            git push
+          fi
