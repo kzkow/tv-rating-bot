@@ -3,7 +3,7 @@ name: TradingView rating
 on:
   schedule:
     # Каждые 5 минут — чаще GitHub не запускает. Сдвиг на :02, :07, … — мимо пиковой нагрузки в начале часа.
-    - cron: "2-59/5 * * * *"
+    - cron: "2/5 * * * *"
   workflow_dispatch:
     inputs:
       summary:
