@@ -45,6 +45,27 @@ def rating(value):
     return "Активно покупать"
 
 
+# Границы значения для каждой оценки — те же пороги, что в rating().
+BOUNDS = {
+    "Активно продавать": (-1.0, -0.5),
+    "Продавать": (-0.5, -0.1),
+    "Нейтрально": (-0.1, 0.1),
+    "Покупать": (0.1, 0.5),
+    "Активно покупать": (0.5, 1.0),
+}
+# Гистерезис: прежняя оценка держится, пока значение не уйдёт за её границы больше чем на эту величину.
+# Без него значение, гуляющее около порога (-0.09 / -0.14 при пороге -0.1), даёт смену каждые 5 минут.
+HYSTERESIS = 0.05
+
+
+def next_rating(old, value):
+    if old in BOUNDS:
+        low, high = BOUNDS[old]
+        if low - HYSTERESIS <= value <= high + HYSTERESIS:
+            return old
+    return rating(value)
+
+
 def fetch_values():
     body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": [COLUMN]}).encode()
     req = urllib.request.Request(SCANNER_URL, data=body, headers={"Content-Type": "application/json"})
@@ -105,14 +126,14 @@ def check(summary=False):
             if ticker in state:
                 new_state[ticker] = state[ticker]
             continue
-        label = rating(values[ticker])
+        label = next_rating(state.get(ticker), values[ticker])
         new_state[ticker] = label
         # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
         if ticker in state and state[ticker] != label:
             changes.append(f"{ticker_link(ticker)}: {state[ticker]} → <b>{label}</b> ({values[ticker]:+.2f})")
 
     if changes:
-        send("Смена оценки TradingView (1 день):\n" + "\n".join(changes))
+        send("\n".join(changes))
     if summary:
         lines = [f"{ticker_link(t)}: {rating(values[t])} ({values[t]:+.2f})" for t in TICKERS if t in values]
         send("Оценка TradingView (1 день):\n" + "\n".join(lines))
