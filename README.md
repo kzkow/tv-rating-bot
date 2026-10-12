@@ -12,7 +12,11 @@
    Для канала: добавить бота админом, chat_id — `@имя_канала`.
 3. Залить репозиторий на GitHub (публичный — в приватном не хватит бесплатных минут).
 4. Settings → Secrets and variables → Actions → New repository secret: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-5. Actions → TradingView rating → Run workflow — придёт сводка по всем бумагам. Дальше — только смены оценки.
+5. Actions → TradingView rating → Run workflow с галочкой «Прислать сводку» — придёт сводка по всем бумагам. Дальше — только смены оценки.
+6. Свой cron GitHub исполняет раз в 3–4 часа, поэтому workflow запускает внешний планировщик (cron-job.org):
+   `POST https://api.github.com/repos/kzkow/tv-rating-bot/actions/workflows/rating.yml/dispatches`,
+   тело `{"ref":"main"}`, заголовки `Authorization: Bearer <токен>`, `Accept: application/vnd.github+json`.
+   Токен — fine-grained, только этот репозиторий, право Actions: Read and write.
 
 ## Локально
 

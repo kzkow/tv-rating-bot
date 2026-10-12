@@ -1,15 +1,17 @@
 name: TradingView rating
 
 on:
+  # Основной запуск — workflow_dispatch через API от внешнего планировщика (cron-job.org):
+  # свой cron GitHub исполняет раз в 3–4 часа. Он оставлен как запасной.
   schedule:
-    # Каждые 5 минут — чаще GitHub не запускает. Сдвиг на :02, :07, … — мимо пиковой нагрузки в начале часа.
     - cron: "2/5 * * * *"
   workflow_dispatch:
     inputs:
       summary:
         description: "Прислать сводку по всем бумагам"
         type: boolean
-        default: true
+        # false: запуск через API без inputs не должен слать сводку.
+        default: false
 
 permissions:
   contents: write
