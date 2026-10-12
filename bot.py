@@ -17,14 +17,13 @@ import urllib.request
 from pathlib import Path
 
 # Тикеры в формате TradingView: <биржа>:<тикер>.
-# Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026.
+# Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026 без GAZP, VTBR, SNGS, TATN, IRAO, CBOM, RUAL.
 TICKERS = [
-    "RUS:LKOH", "RUS:SBER", "RUS:GAZP", "RUS:TATN", "RUS:YDEX",
-    "RUS:T", "RUS:NVTK", "RUS:GMKN", "RUS:OZON", "RUS:ROSN",
-    "RUS:X5", "RUS:VTBR", "RUS:SBERP", "RUS:PLZL", "RUS:SNGSP",
-    "RUS:SNGS", "RUS:TATNP", "RUS:HEAD", "RUS:MOEX", "RUS:IRAO",
-    "RUS:MTSS", "RUS:CHMF", "RUS:CBOM", "RUS:NLMK", "RUS:RUAL",
-    "RUS:PHOR", "RUS:SVCB", "RUS:DOMRF", "RUS:MAGN", "RUS:TRNFP",
+    "RUS:LKOH", "RUS:SBER", "RUS:YDEX", "RUS:T", "RUS:NVTK",
+    "RUS:GMKN", "RUS:OZON", "RUS:ROSN", "RUS:X5", "RUS:SBERP",
+    "RUS:PLZL", "RUS:SNGSP", "RUS:TATNP", "RUS:HEAD", "RUS:MOEX",
+    "RUS:MTSS", "RUS:CHMF", "RUS:NLMK", "RUS:PHOR", "RUS:SVCB",
+    "RUS:DOMRF", "RUS:MAGN", "RUS:TRNFP",
 ]
 
 SCANNER_URL = "https://scanner.tradingview.com/russia/scan"
