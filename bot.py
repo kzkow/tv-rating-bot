@@ -131,12 +131,12 @@ def check(summary=False):
         new_state[ticker] = label
         # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
         if ticker in state and state[ticker] != label:
-            changes.append(f"{ticker_link(ticker)}: {state[ticker]} → <b>{label}</b> ({values[ticker]:+.2f})")
+            changes.append(f"{ticker_link(ticker)}: {state[ticker]} → <b>{label}</b>")
 
     if changes:
         send("\n".join(changes))
     if summary:
-        lines = [f"{ticker_link(t)}: {rating(values[t])} ({values[t]:+.2f})" for t in TICKERS if t in values]
+        lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
         send("Оценка TradingView (1 день):\n" + "\n".join(lines))
 
     # Состояние пишем после отправки: если Telegram упал, смена уйдёт при следующей проверке.
