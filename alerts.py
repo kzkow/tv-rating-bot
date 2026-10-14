@@ -235,7 +235,7 @@ def episode_starts(day_alerts):
 def build_lines(new, day_alerts):
     """Строки сообщения, одна на бумагу: (порядок, текст, ключи, только_повторы).
 
-    «SBER — Резкий рост, Крупные покупки ×3»: причины в порядке первого срабатывания, ×N — тип сработал
+    «SBER: Резкий рост, Крупные покупки ×3»: причины в порядке первого срабатывания, ×N — тип сработал
     в пачке N раз. Строка из одних повторов (срабатываний внутри уже начатого эпизода) — беззвучная.
     """
     starts = episode_starts(day_alerts)
@@ -250,7 +250,7 @@ def build_lines(new, day_alerts):
     lines = []
     for secid, types in by_secid.items():
         reasons = [label(t) + (f" ×{len(e['keys'])}" if len(e["keys"]) > 1 else "") for t, e in types.items()]
-        text = f"{ticker_link('RUS:' + secid)} — " + ", ".join(reasons)
+        text = f"{ticker_link('RUS:' + secid)}: " + ", ".join(reasons)
         first_time = min(e["time"] for e in types.values())
         keys = [k for e in types.values() for k in e["keys"]]
         repeats_only = not any(e["first"] for e in types.values())
