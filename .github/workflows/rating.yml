@@ -26,7 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # ref: main — свежая вершина ветки, а не SHA момента вызова: запуск из очереди
+      # иначе увидел бы состояние до коммита предыдущего запуска и прислал бы то же повторно.
       - uses: actions/checkout@v5
+        with:
+          ref: main
 
       - name: Check ratings
         env:
@@ -34,14 +38,28 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 bot.py ${{ inputs.summary && '--summary' || '' }}
 
-      # Оценки хранятся в state.json в репозитории; коммит только когда оценка сменилась.
+      # Mega Alerts MOEX ALGOPACK. Работает и если упали оценки; таймаут шага не отменяет Save state.
+      - name: Check Mega Alerts
+        if: success() || failure()
+        timeout-minutes: 2
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MOEX_ALGOPACK_TOKEN: ${{ secrets.MOEX_ALGOPACK_TOKEN }}
+        run: python3 alerts.py
+
+      # Состояние хранится в репозитории; коммит только когда оно изменилось.
+      # alerts_state.json появляется не сразу (без ключа его нет) — без проверки git add упал бы
+      # и оценки перестали бы сохраняться.
       - name: Save state
+        if: success() || failure()
         run: |
           git add state.json
+          if [ -f alerts_state.json ]; then git add alerts_state.json; fi
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Update ratings state"
+            git commit -m "Update state"
             git pull --rebase
             git push
           fi

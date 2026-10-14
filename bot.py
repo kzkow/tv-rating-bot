@@ -84,11 +84,11 @@ def ticker_link(ticker):
     return f'<a href="https://ru.tradingview.com/symbols/{exchange}-{symbol}/technicals/">{symbol}</a>'
 
 
-def send(text):
+def send(text, silent=False):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        print(f"[dry-run] {text}")
+        print(f"[dry-run{', silent' if silent else ''}] {text}")
         return
 
     body = json.dumps({
@@ -96,6 +96,7 @@ def send(text):
         "text": text,
         "parse_mode": "HTML",
         "link_preview_options": {"is_disabled": True},
+        "disable_notification": silent,
     }).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
