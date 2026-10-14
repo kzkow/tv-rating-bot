@@ -66,6 +66,24 @@ def next_rating(old, value):
     return rating(value)
 
 
+def side(label):
+    """Сторона оценки: +1 — покупать, -1 — продавать, 0 — нейтрально."""
+    if label in ("Покупать", "Активно покупать"):
+        return 1
+    if label in ("Продавать", "Активно продавать"):
+        return -1
+    return 0
+
+
+def should_notify(notified, new):
+    """Сообщаем только о смене стороны относительно последней присланной оценки.
+
+    Уход в «Нейтрально» и смена силы внутри стороны — молча: за 12–14.10 из 100 смен 78 были
+    качелями «туда-обратно» (Покупать ↔ Нейтрально, Покупать ↔ Активно покупать), смен стороны — около 10.
+    """
+    return side(new) != 0 and side(new) != side(notified)
+
+
 def fetch_values():
     body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": [COLUMN]}).encode()
     req = urllib.request.Request(SCANNER_URL, data=body, headers={"Content-Type": "application/json"})
@@ -110,9 +128,12 @@ def send(text, silent=False):
 
 
 def load_state():
-    if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    return {}
+    """{тикер: {"rating": текущая оценка с гистерезисом, "notified": последняя присланная}}."""
+    if not STATE_FILE.exists():
+        return {}
+    state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    # Старый формат — строка с оценкой: она же и последняя присланная.
+    return {t: v if isinstance(v, dict) else {"rating": v, "notified": v} for t, v in state.items()}
 
 
 def check(summary=False):
@@ -122,16 +143,22 @@ def check(summary=False):
     new_state = {}
     changes = []
     for ticker in TICKERS:
+        old = state.get(ticker)
         if ticker not in values:
             # Нет данных в этот раз — оставляем прошлую оценку.
-            if ticker in state:
-                new_state[ticker] = state[ticker]
+            if old:
+                new_state[ticker] = old
             continue
-        label = next_rating(state.get(ticker), values[ticker])
-        new_state[ticker] = label
-        # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
-        if ticker in state and state[ticker] != label:
-            changes.append(f"{ticker_link(ticker)}: {state[ticker]} → <b>{label}</b>")
+        label = next_rating(old["rating"] if old else None, values[ticker])
+        if old is None:
+            # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
+            new_state[ticker] = {"rating": label, "notified": label}
+            continue
+        notified = old["notified"]
+        if should_notify(notified, label):
+            changes.append(f"{ticker_link(ticker)}: {notified} → <b>{label}</b>")
+            notified = label
+        new_state[ticker] = {"rating": label, "notified": notified}
 
     if changes:
         send("\n".join(changes))
@@ -140,8 +167,10 @@ def check(summary=False):
         send("Оценка TradingView (1 день):\n" + "\n".join(lines))
 
     # Состояние пишем после отправки: если Telegram упал, смена уйдёт при следующей проверке.
-    if new_state != state:
-        STATE_FILE.write_text(json.dumps(new_state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # Сравниваем текст, а не dict: файл в старом формате перепишется в новый.
+    text = json.dumps(new_state, ensure_ascii=False, indent=2) + "\n"
+    if not STATE_FILE.exists() or STATE_FILE.read_text(encoding="utf-8") != text:
+        STATE_FILE.write_text(text, encoding="utf-8")
     print(f"Проверено {len(values)}/{len(TICKERS)}, смен: {len(changes)}")
 
 
