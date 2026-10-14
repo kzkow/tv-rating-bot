@@ -44,8 +44,8 @@
     "notified": "Нейтрально"
   },
   "RUS:SNGSP": {
-    "rating": "Нейтрально",
-    "notified": "Покупать"
+    "rating": "Продавать",
+    "notified": "Продавать"
   },
   "RUS:TATNP": {
     "rating": "Покупать",
@@ -80,7 +80,7 @@
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:MAGN": {
