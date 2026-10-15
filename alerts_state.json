@@ -7,7 +7,7 @@
   "5e3989ff83ba6318",
   "f343db8fc64c5f65"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
