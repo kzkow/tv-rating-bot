@@ -80,7 +80,7 @@
   "f6afd68e5e01c0a6",
   "ff9903dd67fb15c6"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
