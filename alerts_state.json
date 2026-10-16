@@ -158,7 +158,7 @@
   "fe84124f97d97b8a",
   "ffb42d68c2285a88"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
