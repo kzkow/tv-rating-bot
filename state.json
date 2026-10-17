@@ -44,12 +44,12 @@
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:TATNP": {
-    "rating": "Нейтрально",
-    "notified": "Продавать"
+    "rating": "Покупать",
+    "notified": "Покупать"
   },
   "RUS:HEAD": {
     "rating": "Продавать",
