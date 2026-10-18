@@ -29,7 +29,7 @@
   "e7d63369a77d3765",
   "fd377ebb2697d8b9"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
