@@ -32,7 +32,7 @@
     "notified": "Покупать"
   },
   "RUS:X5": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:SBERP": {
@@ -48,7 +48,7 @@
     "notified": "Покупать"
   },
   "RUS:TATNP": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:HEAD": {
@@ -60,7 +60,7 @@
     "notified": "Покупать"
   },
   "RUS:MTSS": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:CHMF": {
