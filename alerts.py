@@ -40,7 +40,6 @@ REQUIRED_COLUMNS = {"tradedate", "tradetime", "secid", "alert_type"}
 REQUEST_TIMEOUT = 20      # секунд на запрос
 FETCH_DEADLINE = 60       # секунд на все запросы запуска (шаг workflow ограничен 2 минутами)
 MAX_PAGES = 20            # по 1000 строк; за день по всему рынку — сотни строк
-REPEAT_WINDOW = 30        # минут: тот же тип по той же бумаге в этом окне — повтор, он сворачивается
 LATE_AFTER = 15           # минут: пачка старше — помечается «с опозданием»
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
 MAX_MESSAGE = 4000        # лимит Telegram — 4096 символов
@@ -213,82 +212,68 @@ def label(alert_type):
     return LABELS.get(alert_type, html.escape(alert_type))
 
 
-def episode_starts(day_alerts):
-    """Минута начала эпизода для каждого (бумага, тип, минута).
+def first_of_day(new, day_alerts):
+    """Делит новые алерты на первые за день по (бумага, тип) и повторы.
 
-    Эпизод — срабатывания одного типа по одной бумаге с разрывами не больше REPEAT_WINDOW минут.
+    Тип по бумаге присылаем раз в день: «Максимум цены за 90 дней», например, срабатывает каждую минуту,
+    пока цена обновляет максимум, — X5 15.10 дал 13 сообщений за два часа.
     """
-    chains = {}
-    for a in sorted(day_alerts, key=lambda a: a["minute"]):
-        chains.setdefault((a["secid"], a["type"]), []).append(a["minute"])
-    starts = {}
-    for (secid, alert_type), minutes in chains.items():
-        start = previous = None
-        for minute in minutes:
-            if previous is None or minute - previous > REPEAT_WINDOW:
-                start = minute
-            starts[(secid, alert_type, minute)] = start
-            previous = minute
-    return starts
+    first_minute = {}
+    for a in day_alerts:
+        pair = (a["secid"], a["type"])
+        first_minute[pair] = min(first_minute.get(pair, a["minute"]), a["minute"])
+    firsts, repeats = [], []
+    for key, alert in new:
+        is_first = alert["minute"] == first_minute[(alert["secid"], alert["type"])]
+        (firsts if is_first else repeats).append((key, alert))
+    return firsts, repeats
 
 
-def build_lines(new, day_alerts):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, только_повторы).
-
-    «SBER: Резкий рост, Крупные покупки ×3»: причины в порядке первого срабатывания, ×N — тип сработал
-    в пачке N раз. Строка из одних повторов (срабатываний внутри уже начатого эпизода) — беззвучная.
-    """
-    starts = episode_starts(day_alerts)
+def build_lines(firsts):
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «SBER: Резкий рост, Крупные покупки»."""
     by_secid = {}
-    for key, alert in sorted(new, key=lambda item: item[1]["time"]):
-        entry = by_secid.setdefault(alert["secid"], {}).setdefault(
-            alert["type"], {"time": alert["time"], "keys": [], "first": False})
-        entry["keys"].append(key)
-        if starts[(alert["secid"], alert["type"], alert["minute"])] == alert["minute"]:
-            entry["first"] = True
+    for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
+        types = by_secid.setdefault(alert["secid"], {})
+        types.setdefault(alert["type"], {"time": alert["time"], "keys": []})["keys"].append(key)
 
     lines = []
     for secid, types in by_secid.items():
-        reasons = [label(t) + (f" ×{len(e['keys'])}" if len(e["keys"]) > 1 else "") for t, e in types.items()]
-        text = f"{ticker_link('RUS:' + secid)}: " + ", ".join(reasons)
+        text = f"{ticker_link('RUS:' + secid)}: " + ", ".join(label(t) for t in types)
         first_time = min(e["time"] for e in types.values())
-        keys = [k for e in types.values() for k in e["keys"]]
-        repeats_only = not any(e["first"] for e in types.values())
-        lines.append(((first_time, secid), text, keys, repeats_only))
+        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]]))
 
     lines.sort(key=lambda line: line[0])
     return lines
 
 
 def split_messages(lines, header):
-    """Части не длиннее MAX_MESSAGE, режем только между строками: (текст, ключи, беззвучно).
+    """Части не длиннее MAX_MESSAGE, режем только между строками: (текст, ключи).
 
     Заголовок («За 13.10:», «С опозданием:») повторяется в каждой части.
     """
     head = [header] if header else []
-    messages, texts, keys, repeats_only = [], list(head), [], True
-    for _, text, line_keys, repeat in lines:
+    messages, texts, keys = [], list(head), []
+    for _, text, line_keys in lines:
         if keys and len("\n".join(texts + [text])) > MAX_MESSAGE:
-            messages.append(("\n".join(texts), keys, repeats_only))
-            texts, keys, repeats_only = list(head), [], True
+            messages.append(("\n".join(texts), keys))
+            texts, keys = list(head), []
         texts.append(text)
         keys = keys + line_keys
-        repeats_only = repeats_only and repeat
     if keys:
-        messages.append(("\n".join(texts), keys, repeats_only))
+        messages.append(("\n".join(texts), keys))
     return messages
 
 
-def deliver(text, silent):
+def deliver(text):
     try:
-        send(text, silent=silent)
+        send(text)
     except RuntimeError as e:
         # 429 Too Many Requests: Telegram говорит, сколько подождать. Ждём один раз.
         match = re.search(r'"retry_after":\s*(\d+)', str(e))
         if not match:
             raise
         time.sleep(min(int(match.group(1)), 30) + 1)
-        send(text, silent=silent)
+        send(text)
 
 
 def load_state(kid):
@@ -332,26 +317,35 @@ def register_ok(state):
 
 
 def process(state, keys, day, alerts, now, header=None):
-    """Отправить новые алерты дня; ключи каждой доставленной части сразу пишутся в состояние."""
+    """Отправить новые алерты дня: (новых, повторов, частей).
+
+    Повторы сразу помечаются увиденными без отправки; ключи каждой доставленной части тоже сразу
+    пишутся в состояние, чтобы при сбое на середине уже доставленное не ушло второй раз.
+    """
     by_key = {keys.of(day, a): a for a in alerts}
     seen = set(state["seen"])
     new = [(k, a) for k, a in by_key.items() if k not in seen]
-    if not new:
-        return 0, 0
+    firsts, repeats = first_of_day(new, list(by_key.values()))
+    if repeats:
+        seen.update(k for k, _ in repeats)
+        state["seen"] = sorted(seen)
+        save_state(state)
+    if not firsts:
+        return 0, len(repeats), 0
 
-    oldest = min(datetime.combine(day, datetime.strptime(a["time"], "%H:%M:%S").time(), MSK) for _, a in new)
+    oldest = min(datetime.combine(day, datetime.strptime(a["time"], "%H:%M:%S").time(), MSK) for _, a in firsts)
     if header is None and now - oldest > timedelta(minutes=LATE_AFTER):
         header = "С опозданием:"
 
-    messages = split_messages(build_lines(new, list(by_key.values())), header)
-    for i, (text, message_keys, silent) in enumerate(messages):
+    messages = split_messages(build_lines(firsts), header)
+    for i, (text, message_keys) in enumerate(messages):
         if i:
             time.sleep(1)
-        deliver(text, silent)
+        deliver(text)
         seen.update(message_keys)
         state["seen"] = sorted(seen)
         save_state(state)
-    return len(new), len(messages)
+    return len(firsts), len(repeats), len(messages)
 
 
 def main():
@@ -393,15 +387,15 @@ def main():
 
     if catch_up:
         tail = select(tail_rows, yesterday)
-        new, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:")
+        new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:")
         print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
-              f"новых {new}, отправлено частей {parts}")
+              f"новых {new}, повторов {repeats}, отправлено частей {parts}")
         state.update(date=today.isoformat(), seen=[])
 
-    new, parts = process(state, keys, today, alerts, now)
+    new, repeats, parts = process(state, keys, today, alerts, now)
     save_state(state)
     print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
-          f"отправлено частей {parts}")
+          f"повторов {repeats}, отправлено частей {parts}")
 
 
 if __name__ == "__main__":
