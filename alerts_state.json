@@ -30,7 +30,7 @@
   "edb4d62299305a9a",
   "fd377ebb2697d8b9"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
