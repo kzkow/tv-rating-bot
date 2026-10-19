@@ -48,8 +48,8 @@
     "notified": "Продавать"
   },
   "RUS:TATNP": {
-    "rating": "Нейтрально",
-    "notified": "Покупать"
+    "rating": "Продавать",
+    "notified": "Продавать"
   },
   "RUS:HEAD": {
     "rating": "Активно продавать",
