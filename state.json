@@ -1,6 +1,6 @@
 {
   "RUS:LKOH": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:SBER": {
@@ -16,7 +16,7 @@
     "notified": "Покупать"
   },
   "RUS:NVTK": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Активно покупать"
   },
   "RUS:GMKN": {
@@ -60,7 +60,7 @@
     "notified": "Покупать"
   },
   "RUS:MTSS": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:CHMF": {
