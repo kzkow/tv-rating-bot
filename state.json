@@ -40,7 +40,7 @@
     "notified": "Покупать"
   },
   "RUS:PLZL": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
@@ -84,7 +84,7 @@
     "notified": "Покупать"
   },
   "RUS:MAGN": {
-    "rating": "Покупать",
+    "rating": "Активно покупать",
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
