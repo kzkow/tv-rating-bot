@@ -118,7 +118,7 @@
   "f9090b3efc658f08",
   "ffa32a17ce0dc22e"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
