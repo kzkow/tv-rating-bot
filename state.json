@@ -80,8 +80,8 @@
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Нейтрально",
-    "notified": "Продавать"
+    "rating": "Покупать",
+    "notified": "Покупать"
   },
   "RUS:MAGN": {
     "rating": "Покупать",
