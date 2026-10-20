@@ -8,7 +8,7 @@
   "be9b667d4b456f67",
   "c4634394035f5e8b"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
