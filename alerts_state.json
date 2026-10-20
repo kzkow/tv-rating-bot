@@ -58,7 +58,7 @@
   "f2d00de74c90c013",
   "f64ba7afe7096b69"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
