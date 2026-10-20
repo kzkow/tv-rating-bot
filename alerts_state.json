@@ -2,13 +2,15 @@
  "kid": "c7ee4559",
  "date": "2026-10-20",
  "seen": [
+  "48448c7777f852e5",
   "a3401c42918fd0ab",
   "b187a5a7a7de5b04",
   "b6a75f60be54d423",
+  "b8e9ebe40e766526",
   "be9b667d4b456f67",
   "c4634394035f5e8b"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
