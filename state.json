@@ -44,7 +44,7 @@
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:TATNP": {
@@ -84,7 +84,7 @@
     "notified": "Покупать"
   },
   "RUS:MAGN": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
