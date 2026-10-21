@@ -32,7 +32,7 @@
     "notified": "Покупать"
   },
   "RUS:X5": {
-    "rating": "Покупать",
+    "rating": "Активно покупать",
     "notified": "Покупать"
   },
   "RUS:SBERP": {
@@ -44,7 +44,7 @@
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:TATNP": {
