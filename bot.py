@@ -98,8 +98,13 @@ def fetch_values():
 
 
 def ticker_link(ticker):
-    exchange, symbol = ticker.split(":")
-    return f'<a href="https://ru.tradingview.com/symbols/{exchange}-{symbol}/technicals/">{symbol}</a>'
+    """Ссылка на бумагу в Т-Инвестициях.
+
+    tbank.ru/invest/stocks/* — универсальная ссылка приложения «Т-Инвестиции» (apple-app-site-association,
+    assetlinks.json на tbank.ru): на телефоне с приложением открывается в нём, без приложения — на сайте.
+    """
+    symbol = ticker.split(":")[1]
+    return f'<a href="https://www.tbank.ru/invest/stocks/{symbol}/">{symbol}</a>'
 
 
 def send(text, silent=False):
