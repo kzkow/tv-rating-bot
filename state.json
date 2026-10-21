@@ -44,8 +44,8 @@
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
-    "rating": "Нейтрально",
-    "notified": "Покупать"
+    "rating": "Продавать",
+    "notified": "Продавать"
   },
   "RUS:TATNP": {
     "rating": "Нейтрально",
@@ -56,7 +56,7 @@
     "notified": "Продавать"
   },
   "RUS:MOEX": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:MTSS": {
