@@ -43,7 +43,6 @@ MAX_PAGES = 20            # по 1000 строк; за день по всему 
 LATE_AFTER = 15           # минут: пачка старше — помечается «с опозданием»
 REPEAT_MINUTES = 60       # тот же тип по той же бумаге — не чаще раза в час
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
-MAX_MESSAGE = 4000        # лимит Telegram — 4096 символов
 
 LABELS = {
     "vol_99_9_pctl": "Аномальный объём",
@@ -257,21 +256,9 @@ def build_lines(firsts):
 
 
 def split_messages(lines, header):
-    """Части не длиннее MAX_MESSAGE, режем только между строками: (текст, ключи).
-
-    Заголовок («За 13.10:», «С опозданием:») повторяется в каждой части.
-    """
-    head = [header] if header else []
-    messages, texts, keys = [], list(head), []
-    for _, text, line_keys in lines:
-        if keys and len("\n".join(texts + [text])) > MAX_MESSAGE:
-            messages.append(("\n".join(texts), keys))
-            texts, keys = list(head), []
-        texts.append(text)
-        keys = keys + line_keys
-    if keys:
-        messages.append(("\n".join(texts), keys))
-    return messages
+    """Одно сообщение на бумагу: (текст, ключи). Заголовок («За 13.10:», «С опозданием:») — в каждом."""
+    head = f"{header}\n" if header else ""
+    return [(head + text, keys) for _, text, keys in lines]
 
 
 def deliver(text):
@@ -327,9 +314,9 @@ def register_ok(state):
 
 
 def process(state, keys, day, alerts, now, header=None):
-    """Отправить новые алерты дня: (новых, повторов, частей).
+    """Отправить новые алерты дня: (новых, повторов, сообщений).
 
-    Повторы сразу помечаются увиденными без отправки; ключи каждой доставленной части тоже сразу
+    Повторы сразу помечаются увиденными без отправки; ключи каждого доставленного сообщения тоже сразу
     пишутся в состояние, чтобы при сбое на середине уже доставленное не ушло второй раз.
     """
     by_key = {keys.of(day, a): a for a in alerts}
@@ -399,13 +386,13 @@ def main():
         tail = select(tail_rows, yesterday)
         new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:")
         print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
-              f"новых {new}, повторов {repeats}, отправлено частей {parts}")
+              f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
 
     new, repeats, parts = process(state, keys, today, alerts, now)
     save_state(state)
     print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
-          f"повторов {repeats}, отправлено частей {parts}")
+          f"повторов {repeats}, отправлено сообщений {parts}")
 
 
 if __name__ == "__main__":

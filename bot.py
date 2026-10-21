@@ -161,21 +161,29 @@ def check(summary=False):
             continue
         notified = old["notified"]
         if should_notify(notified, label):
-            changes.append(f"{ticker_link(ticker)}: {notified} → <b>{label}</b>")
+            changes.append((ticker, f"{ticker_link(ticker)}: {notified} → <b>{label}</b>"))
             notified = label
         new_state[ticker] = {"rating": label, "notified": notified}
 
-    if changes:
-        send("\n".join(changes))
-    if summary:
-        lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
-        send("Оценка TradingView (1 день):\n" + "\n".join(lines))
-
-    # Состояние пишем после отправки: если Telegram упал, смена уйдёт при следующей проверке.
-    # Сравниваем текст, а не dict: файл в старом формате перепишется в новый.
-    text = json.dumps(new_state, ensure_ascii=False, indent=2) + "\n"
-    if not STATE_FILE.exists() or STATE_FILE.read_text(encoding="utf-8") != text:
-        STATE_FILE.write_text(text, encoding="utf-8")
+    # Одно сообщение на бумагу. Состояние пишем после отправки: если Telegram упал на середине,
+    # у неотправленных бумаг «последняя присланная» откатывается, и их смена уйдёт при следующей проверке.
+    unsent = [t for t, _ in changes]
+    try:
+        for i, (ticker, text) in enumerate(changes):
+            if i:
+                time.sleep(1)
+            send(text)
+            unsent.remove(ticker)
+        if summary:
+            lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
+            send("Оценка TradingView (1 день):\n" + "\n".join(lines))
+    finally:
+        for ticker in unsent:
+            new_state[ticker]["notified"] = state[ticker]["notified"]
+        # Сравниваем текст, а не dict: файл в старом формате перепишется в новый.
+        text = json.dumps(new_state, ensure_ascii=False, indent=2) + "\n"
+        if not STATE_FILE.exists() or STATE_FILE.read_text(encoding="utf-8") != text:
+            STATE_FILE.write_text(text, encoding="utf-8")
     print(f"Проверено {len(values)}/{len(TICKERS)}, смен: {len(changes)}")
 
 
