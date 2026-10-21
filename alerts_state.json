@@ -2,7 +2,7 @@
  "kid": "c7ee4559",
  "date": "2026-10-21",
  "seen": [],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
