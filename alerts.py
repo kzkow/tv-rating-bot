@@ -256,21 +256,21 @@ def build_lines(firsts):
 
 
 def split_messages(lines, header):
-    """Одно сообщение на бумагу: (текст, ключи). Заголовок («За 13.10:», «С опозданием:») — в каждом."""
+    """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом."""
     head = f"{header}\n" if header else ""
-    return [(head + text, keys) for _, text, keys in lines]
+    return [(head + text, keys, secid) for (_, secid), text, keys in lines]
 
 
-def deliver(text):
+def deliver(text, secid):
     try:
-        send(text)
+        send(text, buy="RUS:" + secid)
     except RuntimeError as e:
         # 429 Too Many Requests: Telegram говорит, сколько подождать. Ждём один раз.
         match = re.search(r'"retry_after":\s*(\d+)', str(e))
         if not match:
             raise
         time.sleep(min(int(match.group(1)), 30) + 1)
-        send(text)
+        send(text, buy="RUS:" + secid)
 
 
 def load_state(kid):
@@ -335,10 +335,10 @@ def process(state, keys, day, alerts, now, header=None):
         header = "С опозданием:"
 
     messages = split_messages(build_lines(firsts), header)
-    for i, (text, message_keys) in enumerate(messages):
+    for i, (text, message_keys, secid) in enumerate(messages):
         if i:
             time.sleep(1)
-        deliver(text)
+        deliver(text, secid)
         seen.update(message_keys)
         state["seen"] = sorted(seen)
         save_state(state)

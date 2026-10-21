@@ -107,20 +107,29 @@ def ticker_link(ticker):
     return f'<a href="https://www.tbank.ru/invest/stocks/{symbol}/">{symbol}</a>'
 
 
-def send(text, silent=False):
+def buy_button(ticker):
+    """Кнопка «Купить 1 лот». Нажатие обрабатывает tv-bot-serverless, заявку выставляет приватный репозиторий."""
+    return {"inline_keyboard": [[{"text": "Купить 1 лот", "callback_data": f"buy:{ticker.split(':')[1]}"}]]}
+
+
+def send(text, silent=False, buy=None):
+    """buy — тикер («RUS:SBER»): под сообщением будет кнопка «Купить 1 лот»."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        print(f"[dry-run{', silent' if silent else ''}] {text}")
+        print(f"[dry-run{', silent' if silent else ''}{', buy' if buy else ''}] {text}")
         return
 
-    body = json.dumps({
+    payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "link_preview_options": {"is_disabled": True},
         "disable_notification": silent,
-    }).encode()
+    }
+    if buy:
+        payload["reply_markup"] = buy_button(buy)
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=body,
@@ -129,7 +138,13 @@ def send(text, silent=False):
     try:
         urllib.request.urlopen(req, timeout=30).read()
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Telegram ответил {e.code}: {e.read().decode(errors='replace')}") from None
+        detail = e.read().decode(errors="replace")
+        if buy and e.code == 400:
+            # Кнопка не должна стоить алерта: если Telegram её отверг, шлём то же сообщение без неё.
+            print(f"Telegram отверг сообщение с кнопкой, шлю без неё: {detail}", file=sys.stderr)
+            send(text, silent)
+            return
+        raise RuntimeError(f"Telegram ответил {e.code}: {detail}") from None
 
 
 def load_state():
@@ -172,7 +187,7 @@ def check(summary=False):
         for i, (ticker, text) in enumerate(changes):
             if i:
                 time.sleep(1)
-            send(text)
+            send(text, buy=ticker)
             unsent.remove(ticker)
         if summary:
             lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
