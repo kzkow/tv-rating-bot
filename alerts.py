@@ -41,6 +41,7 @@ REQUEST_TIMEOUT = 20      # секунд на запрос
 FETCH_DEADLINE = 60       # секунд на все запросы запуска (шаг workflow ограничен 2 минутами)
 MAX_PAGES = 20            # по 1000 строк; за день по всему рынку — сотни строк
 LATE_AFTER = 15           # минут: пачка старше — помечается «с опозданием»
+REPEAT_MINUTES = 60       # тот же тип по той же бумаге — не чаще раза в час
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
 MAX_MESSAGE = 4000        # лимит Telegram — 4096 символов
 
@@ -212,19 +213,28 @@ def label(alert_type):
     return LABELS.get(alert_type, html.escape(alert_type))
 
 
-def first_of_day(new, day_alerts):
-    """Делит новые алерты на первые за день по (бумага, тип) и повторы.
+def hourly_firsts(new, day_alerts):
+    """Делит новые алерты на отправляемые и повторы: тип по бумаге — не чаще раза в REPEAT_MINUTES.
 
-    Тип по бумаге присылаем раз в день: «Максимум цены за 90 дней», например, срабатывает каждую минуту,
-    пока цена обновляет максимум, — X5 15.10 дал 13 сообщений за два часа.
+    «Максимум цены за 90 дней», например, срабатывает каждую минуту, пока цена обновляет максимум, —
+    X5 15.10 дал 13 сообщений за два часа. По алертам дня для каждой пары (бумага, тип) отправляемыми
+    считаются срабатывания, отстоящие от предыдущего отправляемого не меньше чем на REPEAT_MINUTES
+    (скользящее окно, не календарный час). Считается из данных дня, состояние не нужно.
     """
-    first_minute = {}
+    minutes = {}
     for a in day_alerts:
-        pair = (a["secid"], a["type"])
-        first_minute[pair] = min(first_minute.get(pair, a["minute"]), a["minute"])
+        minutes.setdefault((a["secid"], a["type"]), set()).add(a["minute"])
+    send = {}
+    for pair, ms in minutes.items():
+        last, chosen = None, set()
+        for m in sorted(ms):
+            if last is None or m - last >= REPEAT_MINUTES:
+                chosen.add(m)
+                last = m
+        send[pair] = chosen
     firsts, repeats = [], []
     for key, alert in new:
-        is_first = alert["minute"] == first_minute[(alert["secid"], alert["type"])]
+        is_first = alert["minute"] in send[(alert["secid"], alert["type"])]
         (firsts if is_first else repeats).append((key, alert))
     return firsts, repeats
 
@@ -325,7 +335,7 @@ def process(state, keys, day, alerts, now, header=None):
     by_key = {keys.of(day, a): a for a in alerts}
     seen = set(state["seen"])
     new = [(k, a) for k, a in by_key.items() if k not in seen]
-    firsts, repeats = first_of_day(new, list(by_key.values()))
+    firsts, repeats = hourly_firsts(new, list(by_key.values()))
     if repeats:
         seen.update(k for k, _ in repeats)
         state["seen"] = sorted(seen)
