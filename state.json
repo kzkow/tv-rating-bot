@@ -16,7 +16,7 @@
     "notified": "Покупать"
   },
   "RUS:NVTK": {
-    "rating": "Покупать",
+    "rating": "Активно покупать",
     "notified": "Активно покупать"
   },
   "RUS:GMKN": {
@@ -56,7 +56,7 @@
     "notified": "Продавать"
   },
   "RUS:MOEX": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:MTSS": {
@@ -88,7 +88,7 @@
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   }
 }
