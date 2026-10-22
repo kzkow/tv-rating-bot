@@ -28,7 +28,7 @@
     "notified": "Покупать"
   },
   "RUS:ROSN": {
-    "rating": "Покупать",
+    "rating": "Активно покупать",
     "notified": "Покупать"
   },
   "RUS:X5": {
@@ -60,7 +60,7 @@
     "notified": "Продавать"
   },
   "RUS:MTSS": {
-    "rating": "Нейтрально",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:CHMF": {
