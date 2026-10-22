@@ -8,7 +8,7 @@
     "notified": "Покупать"
   },
   "RUS:YDEX": {
-    "rating": "Продавать",
+    "rating": "Активно продавать",
     "notified": "Продавать"
   },
   "RUS:T": {
@@ -16,7 +16,7 @@
     "notified": "Покупать"
   },
   "RUS:NVTK": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Активно покупать"
   },
   "RUS:GMKN": {
@@ -32,7 +32,7 @@
     "notified": "Покупать"
   },
   "RUS:X5": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:SBERP": {
@@ -80,15 +80,15 @@
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Покупать",
-    "notified": "Покупать"
+    "rating": "Продавать",
+    "notified": "Продавать"
   },
   "RUS:MAGN": {
     "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   }
 }
