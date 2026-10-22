@@ -56,8 +56,8 @@
     "notified": "Продавать"
   },
   "RUS:MOEX": {
-    "rating": "Нейтрально",
-    "notified": "Покупать"
+    "rating": "Продавать",
+    "notified": "Продавать"
   },
   "RUS:MTSS": {
     "rating": "Нейтрально",
