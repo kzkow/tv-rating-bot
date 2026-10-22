@@ -45,27 +45,6 @@ def rating(value):
     return "Активно покупать"
 
 
-# Границы значения для каждой оценки — те же пороги, что в rating().
-BOUNDS = {
-    "Активно продавать": (-1.0, -0.5),
-    "Продавать": (-0.5, -0.1),
-    "Нейтрально": (-0.1, 0.1),
-    "Покупать": (0.1, 0.5),
-    "Активно покупать": (0.5, 1.0),
-}
-# Гистерезис: прежняя оценка держится, пока значение не уйдёт за её границы больше чем на эту величину.
-# Без него значение, гуляющее около порога (-0.09 / -0.14 при пороге -0.1), даёт смену каждые 5 минут.
-HYSTERESIS = 0.05
-
-
-def next_rating(old, value):
-    if old in BOUNDS:
-        low, high = BOUNDS[old]
-        if low - HYSTERESIS <= value <= high + HYSTERESIS:
-            return old
-    return rating(value)
-
-
 def side(label):
     """Сторона оценки: +1 — покупать, -1 — продавать, 0 — нейтрально."""
     if label in ("Покупать", "Активно покупать"):
@@ -148,7 +127,7 @@ def send(text, silent=False, buy=None):
 
 
 def load_state():
-    """{тикер: {"rating": текущая оценка с гистерезисом, "notified": последняя присланная}}."""
+    """{тикер: {"rating": текущая оценка, "notified": последняя присланная}}."""
     if not STATE_FILE.exists():
         return {}
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -169,7 +148,7 @@ def check(summary=False):
             if old:
                 new_state[ticker] = old
             continue
-        label = next_rating(old["rating"] if old else None, values[ticker])
+        label = rating(values[ticker])
         if old is None:
             # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
             new_state[ticker] = {"rating": label, "notified": label}
