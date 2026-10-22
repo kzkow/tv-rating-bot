@@ -86,17 +86,22 @@ def ticker_link(ticker):
     return f'<a href="https://www.tbank.ru/invest/stocks/{symbol}/">{symbol}</a>'
 
 
-def buy_button(ticker):
-    """Кнопка «Купить 1 лот». Нажатие обрабатывает tv-bot-serverless, заявку выставляет приватный репозиторий."""
-    return {"inline_keyboard": [[{"text": "Купить 1 лот", "callback_data": f"buy:{ticker.split(':')[1]}"}]]}
+def trade_buttons(ticker):
+    """Кнопки «Купить» и «Продать» (1 лот по рынку). Нажатие обрабатывает tv-bot-serverless,
+    заявку выставляет приватный репозиторий."""
+    symbol = ticker.split(":")[1]
+    return {"inline_keyboard": [[
+        {"text": "Купить", "callback_data": f"buy:{symbol}"},
+        {"text": "Продать", "callback_data": f"sell:{symbol}"},
+    ]]}
 
 
-def send(text, silent=False, buy=None):
-    """buy — тикер («RUS:SBER»): под сообщением будет кнопка «Купить 1 лот»."""
+def send(text, silent=False, trade=None):
+    """trade — тикер («RUS:SBER»): под сообщением будут кнопки «Купить» и «Продать»."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        print(f"[dry-run{', silent' if silent else ''}{', buy' if buy else ''}] {text}")
+        print(f"[dry-run{', silent' if silent else ''}{', trade' if trade else ''}] {text}")
         return
 
     payload = {
@@ -106,8 +111,8 @@ def send(text, silent=False, buy=None):
         "link_preview_options": {"is_disabled": True},
         "disable_notification": silent,
     }
-    if buy:
-        payload["reply_markup"] = buy_button(buy)
+    if trade:
+        payload["reply_markup"] = trade_buttons(trade)
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
@@ -118,9 +123,9 @@ def send(text, silent=False, buy=None):
         urllib.request.urlopen(req, timeout=30).read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")
-        if buy and e.code == 400:
-            # Кнопка не должна стоить алерта: если Telegram её отверг, шлём то же сообщение без неё.
-            print(f"Telegram отверг сообщение с кнопкой, шлю без неё: {detail}", file=sys.stderr)
+        if trade and e.code == 400:
+            # Кнопки не должны стоить алерта: если Telegram их отверг, шлём то же сообщение без них.
+            print(f"Telegram отверг сообщение с кнопками, шлю без них: {detail}", file=sys.stderr)
             send(text, silent)
             return
         raise RuntimeError(f"Telegram ответил {e.code}: {detail}") from None
@@ -166,7 +171,7 @@ def check(summary=False):
         for i, (ticker, text) in enumerate(changes):
             if i:
                 time.sleep(1)
-            send(text, buy=ticker)
+            send(text, trade=ticker)
             unsent.remove(ticker)
         if summary:
             lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]

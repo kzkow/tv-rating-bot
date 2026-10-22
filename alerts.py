@@ -267,14 +267,14 @@ def split_messages(lines, header):
 
 def deliver(text, secid):
     try:
-        send(text, buy="RUS:" + secid)
+        send(text, trade="RUS:" + secid)
     except RuntimeError as e:
         # 429 Too Many Requests: Telegram говорит, сколько подождать. Ждём один раз.
         match = re.search(r'"retry_after":\s*(\d+)', str(e))
         if not match:
             raise
         time.sleep(min(int(match.group(1)), 30) + 1)
-        send(text, buy="RUS:" + secid)
+        send(text, trade="RUS:" + secid)
 
 
 def load_state(kid):
