@@ -60,7 +60,7 @@
     "notified": "Продавать"
   },
   "RUS:MTSS": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:CHMF": {
@@ -76,11 +76,11 @@
     "notified": "Покупать"
   },
   "RUS:SVCB": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:MAGN": {
