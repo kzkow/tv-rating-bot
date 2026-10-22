@@ -28,7 +28,7 @@
     "notified": "Покупать"
   },
   "RUS:ROSN": {
-    "rating": "Активно покупать",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:X5": {
@@ -68,7 +68,7 @@
     "notified": "Покупать"
   },
   "RUS:NLMK": {
-    "rating": "Нейтрально",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:PHOR": {
