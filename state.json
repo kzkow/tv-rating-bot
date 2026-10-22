@@ -48,15 +48,15 @@
     "notified": "Продавать"
   },
   "RUS:TATNP": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:HEAD": {
-    "rating": "Активно продавать",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:MOEX": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:MTSS": {
