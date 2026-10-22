@@ -12,7 +12,7 @@
     "notified": "Продавать"
   },
   "RUS:T": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:NVTK": {
@@ -68,7 +68,7 @@
     "notified": "Покупать"
   },
   "RUS:NLMK": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:PHOR": {
