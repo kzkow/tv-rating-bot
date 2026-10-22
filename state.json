@@ -52,7 +52,7 @@
     "notified": "Продавать"
   },
   "RUS:HEAD": {
-    "rating": "Активно продавать",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:MOEX": {
@@ -80,8 +80,8 @@
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Нейтрально",
-    "notified": "Продавать"
+    "rating": "Покупать",
+    "notified": "Покупать"
   },
   "RUS:MAGN": {
     "rating": "Покупать",
