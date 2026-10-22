@@ -60,7 +60,7 @@
     "notified": "Продавать"
   },
   "RUS:MTSS": {
-    "rating": "Нейтрально",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:CHMF": {
@@ -88,7 +88,7 @@
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
-    "rating": "Нейтрально",
+    "rating": "Продавать",
     "notified": "Продавать"
   }
 }
