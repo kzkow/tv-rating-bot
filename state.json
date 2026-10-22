@@ -16,7 +16,7 @@
     "notified": "Покупать"
   },
   "RUS:NVTK": {
-    "rating": "Покупать",
+    "rating": "Активно покупать",
     "notified": "Активно покупать"
   },
   "RUS:GMKN": {
@@ -48,7 +48,7 @@
     "notified": "Продавать"
   },
   "RUS:TATNP": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:HEAD": {
@@ -88,7 +88,7 @@
     "notified": "Покупать"
   },
   "RUS:TRNFP": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   }
 }
