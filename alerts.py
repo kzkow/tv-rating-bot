@@ -62,6 +62,8 @@ LABELS = {
     "pr_high_max": "Максимум цены за 90 дней",
     "pr_low_min": "Минимум цены за 90 дней",
 }
+# Не присылаются по решению владельца (22.10.2026): общий объём за минуту без направления сделок.
+SKIPPED_TYPES = {"vol_99_9_pctl", "vol_max"}
 
 
 class ApimError(Exception):
@@ -173,11 +175,13 @@ def fetch_day(opener, token, day, deadline):
 
 
 def select(rows, day):
-    """Алерты по нашим тикерам за этот день; битые строки пропускаются."""
+    """Алерты по нашим тикерам за этот день, кроме SKIPPED_TYPES; битые строки пропускаются."""
     alerts, bad = [], 0
     for row in rows:
         secid = row.get("secid")
         if not isinstance(secid, str) or secid not in SECIDS or str(row.get("tradedate")) != day.isoformat():
+            continue
+        if str(row.get("alert_type")) in SKIPPED_TYPES:
             continue
         try:
             moment = datetime.strptime(str(row["tradetime"])[:8], "%H:%M:%S")
