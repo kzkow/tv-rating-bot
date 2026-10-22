@@ -52,7 +52,7 @@
     "notified": "Продавать"
   },
   "RUS:HEAD": {
-    "rating": "Продавать",
+    "rating": "Активно продавать",
     "notified": "Продавать"
   },
   "RUS:MOEX": {
@@ -60,7 +60,7 @@
     "notified": "Продавать"
   },
   "RUS:MTSS": {
-    "rating": "Продавать",
+    "rating": "Нейтрально",
     "notified": "Продавать"
   },
   "RUS:CHMF": {
