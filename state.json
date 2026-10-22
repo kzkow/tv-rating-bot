@@ -12,7 +12,7 @@
     "notified": "Продавать"
   },
   "RUS:T": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:NVTK": {
@@ -80,7 +80,7 @@
     "notified": "Покупать"
   },
   "RUS:DOMRF": {
-    "rating": "Покупать",
+    "rating": "Нейтрально",
     "notified": "Покупать"
   },
   "RUS:MAGN": {
