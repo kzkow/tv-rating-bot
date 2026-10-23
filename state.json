@@ -12,7 +12,7 @@
     "notified": "Продавать"
   },
   "RUS:T": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:NVTK": {
@@ -64,7 +64,7 @@
     "notified": "Продавать"
   },
   "RUS:CHMF": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:NLMK": {
