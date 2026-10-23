@@ -40,7 +40,7 @@
     "notified": "Покупать"
   },
   "RUS:PLZL": {
-    "rating": "Нейтрально",
+    "rating": "Покупать",
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
@@ -60,7 +60,7 @@
     "notified": "Продавать"
   },
   "RUS:MTSS": {
-    "rating": "Нейтрально",
+    "rating": "Продавать",
     "notified": "Продавать"
   },
   "RUS:CHMF": {
