@@ -44,7 +44,7 @@
     "notified": "Покупать"
   },
   "RUS:SNGSP": {
-    "rating": "Продавать",
+    "rating": "Активно продавать",
     "notified": "Продавать"
   },
   "RUS:TATNP": {
@@ -52,7 +52,7 @@
     "notified": "Продавать"
   },
   "RUS:HEAD": {
-    "rating": "Продавать",
+    "rating": "Активно продавать",
     "notified": "Продавать"
   },
   "RUS:MOEX": {
