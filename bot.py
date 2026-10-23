@@ -1,20 +1,18 @@
-"""Следит за общей оценкой теханализа TradingView (таймфрейм 1 день) и шлёт в Telegram смены оценки.
+"""Общая оценка теханализа TradingView (таймфрейм 1 день) и отправка в Telegram.
+
+Оценку по расписанию бот не опрашивает: alerts.py берёт её, только когда шлёт Mega Alerts, и пишет в сообщение.
+Здесь — запрос оценки, ссылки на бумаги, кнопки «Купить» / «Продать» и ручная сводка.
 
 Запуск:
-    python bot.py              # одна проверка: сравнить с state.json, прислать смены
-    python bot.py --summary    # то же + сводка по всем бумагам
-    python bot.py --loop 60    # проверять каждые 60 секунд (для своей машины/VPS)
+    python bot.py    # сводка «Общей оценки» по всем бумагам
 
 Без TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID сообщения печатаются в консоль, а не отправляются.
 """
-import argparse
 import json
 import os
 import sys
-import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 # Тикеры в формате TradingView: <биржа>:<тикер>.
 # Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026 без GAZP, VTBR, SNGS, TATN, IRAO, CBOM, RUAL.
@@ -29,7 +27,6 @@ TICKERS = [
 SCANNER_URL = "https://scanner.tradingview.com/russia/scan"
 # Общая оценка на дневном таймфрейме. Другие таймфреймы — суффиксом: "Recommend.All|60", "|1W" и т.д.
 COLUMN = "Recommend.All"
-STATE_FILE = Path(__file__).with_name("state.json")
 
 
 def rating(value):
@@ -45,28 +42,11 @@ def rating(value):
     return "Активно покупать"
 
 
-def side(label):
-    """Сторона оценки: +1 — покупать, -1 — продавать, 0 — нейтрально."""
-    if label in ("Покупать", "Активно покупать"):
-        return 1
-    if label in ("Продавать", "Активно продавать"):
-        return -1
-    return 0
-
-
-def should_notify(notified, new):
-    """Сообщаем только о смене стороны относительно последней присланной оценки.
-
-    Уход в «Нейтрально» и смена силы внутри стороны — молча: за 12–14.10 из 100 смен 78 были
-    качелями «туда-обратно» (Покупать ↔ Нейтрально, Покупать ↔ Активно покупать), смен стороны — около 10.
-    """
-    return side(new) != 0 and side(new) != side(notified)
-
-
-def fetch_values():
+def fetch_values(timeout=30):
+    """Значения «Общей оценки» по бумагам: {"RUS:SBER": 0.38, ...}; бумаги без оценки пропущены."""
     body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": [COLUMN]}).encode()
     req = urllib.request.Request(SCANNER_URL, data=body, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.load(resp)
 
     values = {row["s"]: row["d"][0] for row in data["data"] if row["d"][0] is not None}
@@ -131,80 +111,12 @@ def send(text, silent=False, trade=None):
         raise RuntimeError(f"Telegram ответил {e.code}: {detail}") from None
 
 
-def load_state():
-    """{тикер: {"rating": текущая оценка, "notified": последняя присланная}}."""
-    if not STATE_FILE.exists():
-        return {}
-    state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    # Старый формат — строка с оценкой: она же и последняя присланная.
-    return {t: v if isinstance(v, dict) else {"rating": v, "notified": v} for t, v in state.items()}
-
-
-def check(summary=False):
-    state = load_state()
+def summary():
     values = fetch_values()
-
-    new_state = {}
-    changes = []
-    for ticker in TICKERS:
-        old = state.get(ticker)
-        if ticker not in values:
-            # Нет данных в этот раз — оставляем прошлую оценку.
-            if old:
-                new_state[ticker] = old
-            continue
-        label = rating(values[ticker])
-        if old is None:
-            # Тикер без прошлой оценки (первый запуск, новый тикер) запоминаем молча.
-            new_state[ticker] = {"rating": label, "notified": label}
-            continue
-        notified = old["notified"]
-        if should_notify(notified, label):
-            changes.append((ticker, f"{ticker_link(ticker)}: {notified} → <b>{label}</b>"))
-            notified = label
-        new_state[ticker] = {"rating": label, "notified": notified}
-
-    # Одно сообщение на бумагу. Состояние пишем после отправки: если Telegram упал на середине,
-    # у неотправленных бумаг «последняя присланная» откатывается, и их смена уйдёт при следующей проверке.
-    unsent = [t for t, _ in changes]
-    try:
-        for i, (ticker, text) in enumerate(changes):
-            if i:
-                time.sleep(1)
-            send(text, trade=ticker)
-            unsent.remove(ticker)
-        if summary:
-            lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
-            send("Оценка TradingView (1 день):\n" + "\n".join(lines))
-    finally:
-        for ticker in unsent:
-            new_state[ticker]["notified"] = state[ticker]["notified"]
-        # Сравниваем текст, а не dict: файл в старом формате перепишется в новый.
-        text = json.dumps(new_state, ensure_ascii=False, indent=2) + "\n"
-        if not STATE_FILE.exists() or STATE_FILE.read_text(encoding="utf-8") != text:
-            STATE_FILE.write_text(text, encoding="utf-8")
-    print(f"Проверено {len(values)}/{len(TICKERS)}, смен: {len(changes)}")
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--summary", action="store_true", help="прислать сводку по всем бумагам")
-    parser.add_argument("--loop", type=int, metavar="SECONDS", help="проверять в цикле с этим интервалом")
-    args = parser.parse_args()
-
-    if not args.loop:
-        check(summary=args.summary)
-        return
-
-    summary = args.summary
-    while True:
-        try:
-            check(summary=summary)
-            summary = False
-        except Exception as e:  # в цикле не падаем из-за разового сбоя сети
-            print(f"Ошибка: {e}", file=sys.stderr)
-        time.sleep(args.loop)
+    lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
+    send("Оценка TradingView (1 день):\n" + "\n".join(lines))
+    print(f"Сводка: оценка есть по {len(values)}/{len(TICKERS)}")
 
 
 if __name__ == "__main__":
-    main()
+    summary()

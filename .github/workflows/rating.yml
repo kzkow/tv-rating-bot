@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       summary:
-        description: "Прислать сводку по всем бумагам"
+        description: "Прислать сводку оценки TradingView по всем бумагам"
         type: boolean
         # false: запуск через API без inputs не должен слать сводку.
         default: false
@@ -16,7 +16,7 @@ on:
 permissions:
   contents: write
 
-# Проверки идут строго по одной, чтобы не было гонки за state.json.
+# Проверки идут строго по одной, чтобы не было гонки за alerts_state.json.
 concurrency:
   group: tv-rating
   cancel-in-progress: false
@@ -32,13 +32,17 @@ jobs:
         with:
           ref: main
 
-      - name: Check ratings
+      # Оценку TradingView по расписанию не опрашиваем: она приходит строкой в сообщениях Mega Alerts.
+      # Сводка — только по ручному запуску с галочкой.
+      - name: Send summary
+        if: inputs.summary
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python3 bot.py ${{ inputs.summary && '--summary' || '' }}
+        run: python3 bot.py
 
-      # Mega Alerts MOEX ALGOPACK. Работает и если упали оценки; таймаут шага не отменяет Save state.
+      # Mega Alerts MOEX ALGOPACK с текущей оценкой TradingView. Работает и если упала сводка;
+      # таймаут шага не отменяет Save state.
       - name: Check Mega Alerts
         if: success() || failure()
         timeout-minutes: 2
@@ -49,12 +53,10 @@ jobs:
         run: python3 alerts.py
 
       # Состояние хранится в репозитории; коммит только когда оно изменилось.
-      # alerts_state.json появляется не сразу (без ключа его нет) — без проверки git add упал бы
-      # и оценки перестали бы сохраняться.
+      # alerts_state.json появляется не сразу (без ключа его нет) — отсюда проверка.
       - name: Save state
         if: success() || failure()
         run: |
-          git add state.json
           if [ -f alerts_state.json ]; then git add alerts_state.json; fi
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"

@@ -1,4 +1,5 @@
-"""Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота.
+"""Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
+с текущей «Общей оценкой» TradingView (1 день) последней строкой сообщения.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
@@ -23,7 +24,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from bot import TICKERS, send, ticker_link
+from bot import TICKERS, fetch_values, rating, send, ticker_link
 
 APIM_URL = "https://apim.moex.com/iss/datashop/algopack/eq/alerts.json"
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
@@ -259,10 +260,39 @@ def build_lines(firsts):
     return lines
 
 
-def split_messages(lines, header):
-    """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом."""
+class Ratings:
+    """Текущая «Общая оценка» TradingView (1 день) по бумагам — для строки в сообщении алерта.
+
+    Запрашивается один раз за запуск и только когда есть что отправить. Оценка вторична: если TradingView
+    недоступен, алерты уходят без неё.
+    """
+
+    TIMEOUT = 15  # секунд: шаг workflow ограничен 2 минутами, из них до минуты уходит на apim
+
+    def __init__(self):
+        self._labels = None
+
+    def get(self, secid):
+        if self._labels is None:
+            try:
+                values = fetch_values(timeout=self.TIMEOUT)
+            except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее оценки
+                print(f"Mega Alerts: оценка TradingView недоступна ({type(e).__name__}), шлю без неё", file=sys.stderr)
+                values = {}
+            self._labels = {t.split(":")[1]: rating(v) for t, v in values.items()}
+        return self._labels.get(secid)
+
+
+def split_messages(lines, header, ratings=None):
+    """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом,
+    оценка TradingView — последней строкой, если она есть."""
     head = f"{header}\n" if header else ""
-    return [(head + text, keys, secid) for (_, secid), text, keys in lines]
+    messages = []
+    for (_, secid), text, keys in lines:
+        label = ratings.get(secid) if ratings else None
+        tail = f"\nОценка: {label}" if label else ""
+        messages.append((head + text + tail, keys, secid))
+    return messages
 
 
 def deliver(text, secid):
@@ -317,7 +347,7 @@ def register_ok(state):
     save_state(state)
 
 
-def process(state, keys, day, alerts, now, header=None):
+def process(state, keys, day, alerts, now, header=None, ratings=None):
     """Отправить новые алерты дня: (новых, повторов, сообщений).
 
     Повторы сразу помечаются увиденными без отправки; ключи каждого доставленного сообщения тоже сразу
@@ -338,7 +368,7 @@ def process(state, keys, day, alerts, now, header=None):
     if header is None and now - oldest > timedelta(minutes=LATE_AFTER):
         header = "С опозданием:"
 
-    messages = split_messages(build_lines(firsts), header)
+    messages = split_messages(build_lines(firsts), header, ratings)
     for i, (text, message_keys, secid) in enumerate(messages):
         if i:
             time.sleep(1)
@@ -386,14 +416,15 @@ def main():
         print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}")
         return
 
+    ratings = Ratings()
     if catch_up:
         tail = select(tail_rows, yesterday)
-        new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:")
+        new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:", ratings=ratings)
         print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
               f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
 
-    new, repeats, parts = process(state, keys, today, alerts, now)
+    new, repeats, parts = process(state, keys, today, alerts, now, ratings=ratings)
     save_state(state)
     print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
           f"повторов {repeats}, отправлено сообщений {parts}")
