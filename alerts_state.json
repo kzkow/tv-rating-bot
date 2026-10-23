@@ -100,7 +100,7 @@
   "f6e24ae61ea0a93d",
   "ff4e07a0cc9ddf1f"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
