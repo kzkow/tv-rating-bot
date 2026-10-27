@@ -243,8 +243,8 @@ def hourly_firsts(new, day_alerts):
     return firsts, repeats
 
 
-def build_lines(firsts):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «SBER: Резкий рост, Крупные покупки»."""
+def build_lines(firsts, day):
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «27/10 SBER: Резкий рост, Крупные покупки»."""
     by_secid = {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
@@ -252,7 +252,7 @@ def build_lines(firsts):
 
     lines = []
     for secid, types in by_secid.items():
-        text = f"{ticker_link('RUS:' + secid)}: " + ", ".join(label(t) for t in types)
+        text = f"{day:%d/%m} {ticker_link('RUS:' + secid)}: " + ", ".join(label(t) for t in types)
         first_time = min(e["time"] for e in types.values())
         lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]]))
 
@@ -368,7 +368,7 @@ def process(state, keys, day, alerts, now, header=None, ratings=None):
     if header is None and now - oldest > timedelta(minutes=LATE_AFTER):
         header = "С опозданием:"
 
-    messages = split_messages(build_lines(firsts), header, ratings)
+    messages = split_messages(build_lines(firsts, day), header, ratings)
     for i, (text, message_keys, secid) in enumerate(messages):
         if i:
             time.sleep(1)
