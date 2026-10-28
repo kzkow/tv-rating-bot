@@ -152,7 +152,7 @@
   "ff6b87c6a78db741",
   "ffb7f27bf51d024f"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
