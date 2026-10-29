@@ -135,7 +135,7 @@
   "fc9ad940c462ec09",
   "fdfe1e358f392afa"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false
 }
