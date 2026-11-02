@@ -38,15 +38,14 @@ STATE_FILE = Path(os.environ.get("ALERTS_STATE_FILE") or Path(__file__).with_nam
 MSK = timezone(timedelta(hours=3))
 SECIDS = {t.split(":")[1] for t in TICKERS}
 # Фьючерсы: базовый актив (asset_code) → название в сообщении. Фильтр по активу, а не по контракту:
-# SiZ6 при экспирации сменится на SiH7. Вечные фьючерсы — свой актив (CNYRUBTOM, GLDRUBTOM).
+# MXZ6 при экспирации сменится на MXH7. Вечные фьючерсы — свой актив (USDRUBTOM, CNYRUBTOM, GLDRUBTOM).
+# Срочные доллар (Si), юань (CNY) и золото (GOLD) убраны 02.11.2026 по решению владельца — остались вечные.
 FUTURES = {
-    "Si": "доллар",
-    "CNY": "юань",
+    "USDRUBTOM": "доллар",
     "CNYRUBTOM": "юань",
     "BR": "нефть Brent",
     "MIX": "индекс Мосбиржи",
     "RTS": "индекс РТС",
-    "GOLD": "золото",
     "GLDRUBTOM": "золото",
 }
 REQUIRED_COLUMNS = {"tradedate", "tradetime", "secid", "alert_type"}
@@ -271,7 +270,7 @@ def future_link(secid):
 
 def build_lines(firsts, day):
     """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «27/10 SBER: Резкий рост, Крупные покупки»,
-    у фьючерса — с активом: «27/10 SiZ6 (доллар): Перевес продаж»."""
+    у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж»."""
     by_secid, assets = {}, {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
