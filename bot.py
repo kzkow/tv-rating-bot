@@ -15,13 +15,14 @@ import urllib.error
 import urllib.request
 
 # Тикеры в формате TradingView: <биржа>:<тикер>.
-# Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026 без GAZP, VTBR, SNGS, TATN, IRAO, CBOM, RUAL.
+# Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026 без GAZP, VTBR, SNGS, TATN, IRAO, CBOM, RUAL;
+# с 02.11.2026 ещё VKCO и AFLT (из IMOEX, по обороту в топ-25).
 TICKERS = [
     "RUS:LKOH", "RUS:SBER", "RUS:YDEX", "RUS:T", "RUS:NVTK",
     "RUS:GMKN", "RUS:OZON", "RUS:ROSN", "RUS:X5", "RUS:SBERP",
     "RUS:PLZL", "RUS:SNGSP", "RUS:TATNP", "RUS:HEAD", "RUS:MOEX",
     "RUS:MTSS", "RUS:CHMF", "RUS:NLMK", "RUS:PHOR", "RUS:SVCB",
-    "RUS:DOMRF", "RUS:MAGN", "RUS:TRNFP",
+    "RUS:DOMRF", "RUS:MAGN", "RUS:TRNFP", "RUS:VKCO", "RUS:AFLT",
 ]
 
 SCANNER_URL = "https://scanner.tradingview.com/russia/scan"
