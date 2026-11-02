@@ -1,0 +1,46 @@
+name: Probe fo alerts
+
+# Разовая проверка: отдаёт ли ключ ALGOPACK Mega Alerts срочного (fo) и валютного (fx) рынков.
+# Запускается пушем этих файлов. Результат — в приватный tv-history (probe/), в лог — только статусы и счётчики.
+# Удалить вместе с probe_fo.py после проверки.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/probe-fo.yml
+      - probe_fo.py
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/checkout@v5
+        with:
+          repository: kzkow/tv-history
+          token: ${{ secrets.HISTORY_TOKEN }}
+          path: history
+
+      - name: Probe
+        env:
+          MOEX_ALGOPACK_TOKEN: ${{ secrets.MOEX_ALGOPACK_TOKEN }}
+        run: python3 probe_fo.py history/probe
+
+      - name: Save
+        run: |
+          cd history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "probe: Mega Alerts eq/fo/fx"
+          for i in 1 2 3 4 5; do
+            git push -q && exit 0
+            sleep $((i * 2))
+            git pull -q --rebase || { git rebase --abort; exit 1; }
+          done
+          exit 1
