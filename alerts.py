@@ -42,7 +42,7 @@ REQUEST_TIMEOUT = 20      # секунд на запрос
 FETCH_DEADLINE = 60       # секунд на все запросы запуска (шаг workflow ограничен 2 минутами)
 MAX_PAGES = 20            # по 1000 строк; за день по всему рынку — сотни строк
 LATE_AFTER = 15           # минут: пачка старше — помечается «с опозданием»
-REPEAT_MINUTES = 60       # тот же тип по той же бумаге — не чаще раза в час
+REPEAT_MINUTES = 30       # тот же тип по той же бумаге — не чаще раза в 30 минут
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
 
 LABELS = {
@@ -217,7 +217,7 @@ def label(alert_type):
     return LABELS.get(alert_type, html.escape(alert_type))
 
 
-def hourly_firsts(new, day_alerts):
+def split_repeats(new, day_alerts):
     """Делит новые алерты на отправляемые и повторы: тип по бумаге — не чаще раза в REPEAT_MINUTES.
 
     «Максимум цены за 90 дней», например, срабатывает каждую минуту, пока цена обновляет максимум, —
@@ -356,7 +356,7 @@ def process(state, keys, day, alerts, now, header=None, ratings=None):
     by_key = {keys.of(day, a): a for a in alerts}
     seen = set(state["seen"])
     new = [(k, a) for k, a in by_key.items() if k not in seen]
-    firsts, repeats = hourly_firsts(new, list(by_key.values()))
+    firsts, repeats = split_repeats(new, list(by_key.values()))
     if repeats:
         seen.update(k for k, _ in repeats)
         state["seen"] = sorted(seen)
