@@ -1,10 +1,11 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
-с текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа) последней строкой сообщения.
+с текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа) последней строкой сообщения,
+и по макро-фьючерсам (доллар, юань, нефть, индексы, золото) — без оценки и кнопок.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
 
-Источник — https://apim.moex.com/iss/datashop/algopack/eq/alerts.json (тариф ALGOPACK Promo).
+Источник — https://apim.moex.com/iss/datashop/algopack/{eq,fo}/alerts.json (тариф ALGOPACK Promo).
 Состояние — alerts_state.json. Репозиторий публичный, поэтому там только HMAC-хэши ключей алертов,
 а в лог пишутся только счётчики: содержимое алертов (данные MOEX) уходит только в Telegram.
 """
@@ -26,7 +27,7 @@ from pathlib import Path
 
 from bot import COLUMN, TICKERS, fetch_values, rating, send, ticker_link
 
-APIM_URL = "https://apim.moex.com/iss/datashop/algopack/eq/alerts.json"
+APIM_URL = "https://apim.moex.com/iss/datashop/algopack/{market}/alerts.json"  # eq — акции, fo — фьючерсы
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
 CERT_FILE = Path(__file__).with_name("certs") / "russian_trusted_root_ca.pem"
 # SHA-256 DER корня «Russian Trusted Root CA», действует до 2032-02-27.
@@ -36,6 +37,18 @@ STATE_FILE = Path(os.environ.get("ALERTS_STATE_FILE") or Path(__file__).with_nam
 
 MSK = timezone(timedelta(hours=3))
 SECIDS = {t.split(":")[1] for t in TICKERS}
+# Фьючерсы: базовый актив (asset_code) → название в сообщении. Фильтр по активу, а не по контракту:
+# SiZ6 при экспирации сменится на SiH7. Вечные фьючерсы — свой актив (CNYRUBTOM, GLDRUBTOM).
+FUTURES = {
+    "Si": "доллар",
+    "CNY": "юань",
+    "CNYRUBTOM": "юань",
+    "BR": "нефть Brent",
+    "MIX": "индекс Мосбиржи",
+    "RTS": "индекс РТС",
+    "GOLD": "золото",
+    "GLDRUBTOM": "золото",
+}
 REQUIRED_COLUMNS = {"tradedate", "tradetime", "secid", "alert_type"}
 
 REQUEST_TIMEOUT = 20      # секунд на запрос
@@ -63,6 +76,9 @@ LABELS = {
     "pr_change_min": "Рекордное падение за минуту",
     "pr_high_max": "Максимум цены за 90 дней",
     "pr_low_min": "Минимум цены за 90 дней",
+    # Только у фьючерсов: открытый интерес — сколько контрактов открыто, его скачок — крупный вход или выход.
+    "oi_close_change_99_9_pctl+": "Резкий рост открытого интереса",
+    "oi_close_change_99_9_pctl-": "Резкое падение открытого интереса",
 }
 # Не присылаются по решению владельца (22.10.2026): общий объём за минуту без направления сделок.
 SKIPPED_TYPES = {"vol_99_9_pctl", "vol_max"}
@@ -93,11 +109,11 @@ def apim_opener():
     return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect)
 
 
-def get_page(opener, token, day, start):
+def get_page(opener, token, day, start, market="eq"):
     """Одна страница ответа как dict; None, если за день данных нет (404)."""
     query = urllib.parse.urlencode({"date": day.isoformat(), "start": start})
     req = urllib.request.Request(
-        f"{APIM_URL}?{query}",
+        f"{APIM_URL.format(market=market)}?{query}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     try:
@@ -156,12 +172,12 @@ def parse_page(page):
     return rows, total
 
 
-def fetch_day(opener, token, day, deadline):
+def fetch_day(opener, token, day, deadline, market="eq"):
     rows, start = [], 0
     for _ in range(MAX_PAGES):
         if time.monotonic() > deadline:
             raise ApimError("timeout")
-        page = get_page(opener, token, day, start)
+        page = get_page(opener, token, day, start, market)
         if page is None:
             break
         page_rows, total = parse_page(page)
@@ -176,12 +192,15 @@ def fetch_day(opener, token, day, deadline):
     return rows
 
 
-def select(rows, day):
-    """Алерты по нашим тикерам за этот день, кроме SKIPPED_TYPES; битые строки пропускаются."""
+def select(rows, day, market="eq"):
+    """Алерты по нашим тикерам (или активам FUTURES) за этот день, кроме SKIPPED_TYPES; битые строки пропускаются."""
     alerts, bad = [], 0
     for row in rows:
         secid = row.get("secid")
-        if not isinstance(secid, str) or secid not in SECIDS or str(row.get("tradedate")) != day.isoformat():
+        if not isinstance(secid, str) or str(row.get("tradedate")) != day.isoformat():
+            continue
+        ours = secid in SECIDS if market == "eq" else row.get("asset_code") in FUTURES
+        if not ours:
             continue
         if str(row.get("alert_type")) in SKIPPED_TYPES:
             continue
@@ -192,6 +211,7 @@ def select(rows, day):
                 "minute": moment.hour * 60 + moment.minute,
                 "secid": secid,
                 "type": str(row["alert_type"]),
+                "asset": row.get("asset_code") if market == "fo" else None,
             })
         except (KeyError, ValueError):
             bad += 1
@@ -244,16 +264,25 @@ def split_repeats(new, day_alerts):
     return firsts, repeats
 
 
+def future_link(secid):
+    """Фьючерс в Т-Инвестициях: страница контракта, как ticker_link у акций."""
+    return f'<a href="https://www.tbank.ru/invest/futures/{secid}/">{secid}</a>'
+
+
 def build_lines(firsts, day):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «27/10 SBER: Резкий рост, Крупные покупки»."""
-    by_secid = {}
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «27/10 SBER: Резкий рост, Крупные покупки»,
+    у фьючерса — с активом: «27/10 SiZ6 (доллар): Перевес продаж»."""
+    by_secid, assets = {}, {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
         types.setdefault(alert["type"], {"time": alert["time"], "keys": []})["keys"].append(key)
+        assets[alert["secid"]] = alert.get("asset")
 
     lines = []
     for secid, types in by_secid.items():
-        text = f"{day:%d/%m} {ticker_link('RUS:' + secid)}: " + ", ".join(label(t) for t in types)
+        asset = assets[secid]
+        name = f"{future_link(secid)} ({FUTURES[asset]})" if asset else ticker_link("RUS:" + secid)
+        text = f"{day:%d/%m} {name}: " + ", ".join(label(t) for t in types)
         first_time = min(e["time"] for e in types.values())
         lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]]))
 
@@ -306,22 +335,27 @@ def split_messages(lines, header, ratings=None):
 
 
 def deliver(text, secid):
+    # Кнопки «Купить» / «Продать» — только у акций: заявки tv-orders умеют только их.
+    trade = "RUS:" + secid if secid in SECIDS else None
     try:
-        send(text, trade="RUS:" + secid)
+        send(text, trade=trade)
     except RuntimeError as e:
         # 429 Too Many Requests: Telegram говорит, сколько подождать. Ждём один раз.
         match = re.search(r'"retry_after":\s*(\d+)', str(e))
         if not match:
             raise
         time.sleep(min(int(match.group(1)), 30) + 1)
-        send(text, trade="RUS:" + secid)
+        send(text, trade=trade)
 
 
 def load_state(kid):
-    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False}
+    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False,
+             "markets": []}
     if not STATE_FILE.exists():
         return fresh
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    # Состояние без markets — до фьючерсов (02.11.2026): в seen только акции.
+    state.setdefault("markets", ["eq"])
     if state.get("kid") != kid:
         # Сменился API-ключ — старые хэши несравнимы: начинаем заново молча, статус ошибок сохраняем.
         for field in ("error", "error_count", "error_notified"):
@@ -419,25 +453,44 @@ def main():
     register_ok(state)
     alerts = select(rows, today)
 
+    # Фьючерсы вторичны: сбой срочного рынка не задерживает акции и не шлёт «недоступны» —
+    # их алерты придут следующим запуском. Хвост за вчера — только если вчера фьючерсы уже присылались.
+    futures_known = "fo" in state["markets"]
+    try:
+        fo_tail = fetch_day(opener, token, yesterday, deadline, "fo") if catch_up and futures_known else []
+        fo_rows = fetch_day(opener, token, today, deadline, "fo")
+    except ApimError as e:
+        print(f"Mega Alerts: фьючерсы недоступны: {e.code}", file=sys.stderr)
+        fo_tail, fo_rows = [], None
+    fo_alerts = select(fo_rows, today, "fo") if fo_rows is not None else []
+
     if not baselined or state["date"] not in (today.isoformat(), yesterday.isoformat()):
         # Первый успешный запрос (или разрыв больше суток): запоминаем день молча, без потока с утра.
-        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts}))
+        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts + fo_alerts}),
+                     markets=["eq"] + (["fo"] if fo_rows is not None else []))
         save_state(state)
-        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}")
+        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}, "
+              f"по фьючерсам {len(fo_alerts)}")
         return
+    if fo_rows is not None and not futures_known:
+        # Фьючерсы добавлены в работающего бота: уже вышедшие за день — молча, как базовая точка.
+        state.update(seen=sorted(set(state["seen"]) | {keys.of(today, a) for a in fo_alerts}),
+                     markets=state["markets"] + ["fo"])
+        save_state(state)
+        print(f"Mega Alerts: фьючерсы — базовая точка, по фьючерсам {len(fo_alerts)}")
 
     ratings = Ratings()
     if catch_up:
-        tail = select(tail_rows, yesterday)
+        tail = select(tail_rows, yesterday) + select(fo_tail, yesterday, "fo")
         new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:", ratings=ratings)
-        print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
-              f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
+        print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows) + len(fo_tail)}, "
+              f"по нашим тикерам и фьючерсам {len(tail)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
 
-    new, repeats, parts = process(state, keys, today, alerts, now, ratings=ratings)
+    new, repeats, parts = process(state, keys, today, alerts + fo_alerts, now, ratings=ratings)
     save_state(state)
-    print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
-          f"повторов {repeats}, отправлено сообщений {parts}")
+    print(f"Mega Alerts: строк за день {len(rows) + len(fo_rows or [])}, по нашим тикерам {len(alerts)}, "
+          f"по фьючерсам {len(fo_alerts)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
 
 
 if __name__ == "__main__":
