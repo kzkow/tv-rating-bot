@@ -7,12 +7,18 @@
     python bot.py    # сводка «Общей оценки» по всем бумагам
 
 Без TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID сообщения печатаются в консоль, а не отправляются.
+
+С HISTORY_DIR каждое отправленное сообщение дописывается строкой JSON в HISTORY_DIR/alerts/<дата МСК>.jsonl,
+а workflow переносит эти строки в приватный репозиторий kzkow/tv-history: тексты алертов — данные MOEX,
+в этот публичный репозиторий их класть нельзя.
 """
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 # Тикеры в формате TradingView: <биржа>:<тикер>.
 # Топ-30 по весу в индексе Мосбиржи IMOEX на 09.10.2026 без GAZP, VTBR, SNGS, TATN, IRAO, CBOM, RUAL;
@@ -28,6 +34,8 @@ TICKERS = [
 SCANNER_URL = "https://scanner.tradingview.com/russia/scan"
 # Общая оценка на дневном таймфрейме. Другие таймфреймы — суффиксом: "Recommend.All|60", "|1W" и т.д.
 COLUMN = "Recommend.All"
+
+MSK = timezone(timedelta(hours=3))
 
 
 def rating(value):
@@ -104,7 +112,7 @@ def send(text, silent=False, trade=None):
         headers={"Content-Type": "application/json"},
     )
     try:
-        urllib.request.urlopen(req, timeout=30).read()
+        answer = urllib.request.urlopen(req, timeout=30).read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")
         if trade and e.code == 400:
@@ -113,6 +121,27 @@ def send(text, silent=False, trade=None):
             send(text, silent)
             return
         raise RuntimeError(f"Telegram ответил {e.code}: {detail}") from None
+    remember(text, answer, silent=silent, buttons=bool(trade))
+
+
+def remember(text, answer, **extra):
+    """Отправленное сообщение — в историю (HISTORY_DIR). Сбой записи не мешает алертам, в лог — только тип ошибки."""
+    root = os.environ.get("HISTORY_DIR")
+    if not root:
+        return
+    try:
+        try:
+            message_id = json.loads(answer)["result"]["message_id"]
+        except (ValueError, TypeError, KeyError):
+            message_id = None
+        now = datetime.now(MSK)
+        path = Path(root) / "alerts" / f"{now:%Y-%m-%d}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {"time": now.isoformat(timespec="seconds"), "message_id": message_id, **extra, "text": text}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"История не записана: {type(e).__name__}", file=sys.stderr)
 
 
 def summary():

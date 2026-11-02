@@ -39,6 +39,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HISTORY_DIR: ${{ runner.temp }}/history
         run: python3 bot.py
 
       # Mega Alerts MOEX ALGOPACK с текущей оценкой TradingView. Работает и если упала сводка;
@@ -50,6 +51,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MOEX_ALGOPACK_TOKEN: ${{ secrets.MOEX_ALGOPACK_TOKEN }}
+          HISTORY_DIR: ${{ runner.temp }}/history
         run: python3 alerts.py
 
       # Состояние хранится в репозитории; коммит только когда оно изменилось.
@@ -65,3 +67,41 @@ jobs:
             git pull --rebase
             git push
           fi
+
+      # История отправленных сообщений — в приватный kzkow/tv-history: тексты алертов — данные MOEX, здесь их
+      # хранить нельзя. В лог попадают только имена файлов. Сбой истории не роняет запуск: алерты уже отправлены.
+      - name: Check history
+        id: history
+        if: success() || failure()
+        run: if [ -d "$RUNNER_TEMP/history" ]; then echo "new=1" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v5
+        if: (success() || failure()) && steps.history.outputs.new == '1'
+        continue-on-error: true
+        with:
+          repository: kzkow/tv-history
+          token: ${{ secrets.HISTORY_TOKEN }}
+          path: history
+
+      # *.jsonl в tv-history сливаются по merge=union (.gitattributes): параллельная запись из tv-orders
+      # не даёт конфликта при pull --rebase, строки обеих сторон сохраняются.
+      - name: Save history
+        if: (success() || failure()) && steps.history.outputs.new == '1'
+        continue-on-error: true
+        run: |
+          git -C history rev-parse -q --verify HEAD > /dev/null || { echo "Нет доступа к tv-history (секрет HISTORY_TOKEN) — история не сохранена"; exit 1; }
+          (cd "$RUNNER_TEMP/history" && find . -name '*.jsonl') | while read -r f; do
+            mkdir -p "history/$(dirname "$f")"
+            cat "$RUNNER_TEMP/history/$f" >> "history/$f"
+          done
+          cd history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "tv-rating-bot: запуск $GITHUB_RUN_ID"
+          for i in 1 2 3 4 5; do
+            git push -q && exit 0
+            sleep $((i * 2))
+            git pull -q --rebase || { git rebase --abort; exit 1; }
+          done
+          exit 1
