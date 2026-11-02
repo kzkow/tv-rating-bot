@@ -1,5 +1,5 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
-с текущей «Общей оценкой» TradingView (1 день) последней строкой сообщения.
+с текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа) последней строкой сообщения.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
@@ -24,7 +24,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from bot import TICKERS, fetch_values, rating, send, ticker_link
+from bot import COLUMN, TICKERS, fetch_values, rating, send, ticker_link
 
 APIM_URL = "https://apim.moex.com/iss/datashop/algopack/eq/alerts.json"
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
@@ -44,6 +44,7 @@ MAX_PAGES = 20            # по 1000 строк; за день по всему 
 LATE_AFTER = 15           # минут: пачка старше — помечается «с опозданием»
 REPEAT_MINUTES = 30       # тот же тип по той же бумаге — не чаще раза в 30 минут
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
+RATING_HOURS = (1, 2, 4)  # таймфреймы оценки в скобках после дневной, часов
 
 LABELS = {
     "vol_99_9_pctl": "Аномальный объём",
@@ -260,14 +261,23 @@ def build_lines(firsts, day):
     return lines
 
 
-class Ratings:
-    """Текущая «Общая оценка» TradingView (1 день) по бумагам — для строки в сообщении алерта.
+def rating_line(values):
+    """(1 день, 1 ч, 2 ч, 4 ч) → «покупать (1 покупать, 2 нейтрально, 4 продавать)»; нет значения — «—»."""
+    day, *hours = (rating(v).lower() if v is not None else "—" for v in values)
+    return f"{day} ({', '.join(f'{h} {label}' for h, label in zip(RATING_HOURS, hours))})"
 
-    Запрашивается один раз за запуск и только когда есть что отправить. Оценка вторична: если TradingView
-    недоступен, алерты уходят без неё.
+
+class Ratings:
+    """Текущая «Общая оценка» TradingView по бумагам — для строки в сообщении алерта: на 1 день и в скобках
+    на RATING_HOURS часов.
+
+    Запрашивается один раз за запуск (все таймфреймы — одним запросом) и только когда есть что отправить.
+    Оценка вторична: если TradingView недоступен, алерты уходят без неё.
     """
 
     TIMEOUT = 15  # секунд: шаг workflow ограничен 2 минутами, из них до минуты уходит на apim
+    # Дневная колонка — без суффикса, часовые — суффиксом в минутах: "Recommend.All|60".
+    COLUMNS = [COLUMN] + [f"{COLUMN}|{h * 60}" for h in RATING_HOURS]
 
     def __init__(self):
         self._labels = None
@@ -275,11 +285,11 @@ class Ratings:
     def get(self, secid):
         if self._labels is None:
             try:
-                values = fetch_values(timeout=self.TIMEOUT)
+                values = fetch_values(timeout=self.TIMEOUT, columns=self.COLUMNS)
             except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее оценки
                 print(f"Mega Alerts: оценка TradingView недоступна ({type(e).__name__}), шлю без неё", file=sys.stderr)
                 values = {}
-            self._labels = {t.split(":")[1]: rating(v) for t, v in values.items()}
+            self._labels = {t.split(":")[1]: rating_line(v) for t, v in values.items()}
         return self._labels.get(secid)
 
 

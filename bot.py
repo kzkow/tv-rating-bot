@@ -42,14 +42,17 @@ def rating(value):
     return "Активно покупать"
 
 
-def fetch_values(timeout=30):
-    """Значения «Общей оценки» по бумагам: {"RUS:SBER": 0.38, ...}; бумаги без оценки пропущены."""
-    body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": [COLUMN]}).encode()
+def fetch_values(timeout=30, columns=(COLUMN,)):
+    """Значения «Общей оценки» по бумагам, по одному на колонку: {"RUS:SBER": (0.38, ...), ...}.
+
+    None — по этой колонке значения нет; бумаги без единого значения пропущены.
+    """
+    body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": list(columns)}).encode()
     req = urllib.request.Request(SCANNER_URL, data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.load(resp)
 
-    values = {row["s"]: row["d"][0] for row in data["data"] if row["d"][0] is not None}
+    values = {row["s"]: tuple(row["d"]) for row in data["data"] if any(v is not None for v in row["d"])}
     missing = [t for t in TICKERS if t not in values]
     if missing:
         print(f"Нет оценки для: {', '.join(missing)}", file=sys.stderr)
@@ -112,7 +115,7 @@ def send(text, silent=False, trade=None):
 
 
 def summary():
-    values = fetch_values()
+    values = {t: v[0] for t, v in fetch_values().items()}
     lines = [f"{ticker_link(t)}: {rating(values[t])}" for t in TICKERS if t in values]
     send("Оценка TradingView (1 день):\n" + "\n".join(lines))
     print(f"Сводка: оценка есть по {len(values)}/{len(TICKERS)}")
