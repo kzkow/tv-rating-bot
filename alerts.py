@@ -1,5 +1,6 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
-с текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа) последней строкой сообщения,
+с изменением цены за минуту алерта и текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа)
+последней строкой сообщения,
 и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции — без кнопок,
 с дневной оценкой TradingView, если она там есть.
 
@@ -29,6 +30,11 @@ from pathlib import Path
 from bot import COLUMN, TICKERS, fetch_values, rating, send, ticker_link
 
 APIM_URL = "https://apim.moex.com/iss/datashop/algopack/{market}/alerts.json"  # eq — акции, fo — фьючерсы
+# Минутные свечи: с ключом apim отдаёт их без задержки (анонимный ISS — с задержкой 15 минут).
+CANDLES_URL = {
+    "eq": "https://apim.moex.com/iss/engines/stock/markets/shares/boards/tqbr/securities/{secid}/candles.json",
+    "fo": "https://apim.moex.com/iss/engines/futures/markets/forts/boards/rfud/securities/{secid}/candles.json",
+}
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
 CERT_FILE = Path(__file__).with_name("certs") / "russian_trusted_root_ca.pem"
 # SHA-256 DER корня «Russian Trusted Root CA», действует до 2032-02-27.
@@ -67,6 +73,8 @@ LATE_AFTER = 15           # минут: пачка старше — помеча
 REPEAT_MINUTES = 30       # тот же тип по той же бумаге — не чаще раза в 30 минут
 ERRORS_BEFORE_NOTICE = 3  # запусков подряд с ошибкой до сообщения «недоступны» (~15 минут)
 RATING_HOURS = (1, 2, 4)  # таймфреймы оценки в скобках после дневной, часов
+CANDLES_TIMEOUT = 5       # секунд на запрос свечей: изменение цены вторично, как и оценка
+CANDLES_DEADLINE = 15     # секунд на все запросы свечей за запуск
 
 LABELS = {
     "vol_99_9_pctl": "Аномальный объём",
@@ -121,12 +129,14 @@ def apim_opener():
 def get_page(opener, token, day, start, market="eq"):
     """Одна страница ответа как dict; None, если за день данных нет (404)."""
     query = urllib.parse.urlencode({"date": day.isoformat(), "start": start})
-    req = urllib.request.Request(
-        f"{APIM_URL.format(market=market)}?{query}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-    )
+    return request_json(opener, token, f"{APIM_URL.format(market=market)}?{query}")
+
+
+def request_json(opener, token, url, timeout=REQUEST_TIMEOUT):
+    """GET к apim с ключом: ответ как dict; None — 404. Любой сбой — ApimError с коротким кодом."""
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
     try:
-        with opener.open(req, timeout=REQUEST_TIMEOUT) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             content_type = resp.headers.get("Content-Type", "")
             body = resp.read()
     except urllib.error.HTTPError as e:
@@ -319,26 +329,113 @@ def split_repeats(new, day_alerts):
     return firsts, repeats
 
 
+def fetch_candles(opener, token, market, secid, day, start, end):
+    """Минутные свечи бумаги за минуты дня start..end (от полуночи): [(минута, open, close)]."""
+    query = urllib.parse.urlencode({
+        "from": f"{day.isoformat()}T{start // 60:02d}:{start % 60:02d}:00",
+        "till": f"{day.isoformat()}T{end // 60:02d}:{end % 60:02d}:59",
+        "interval": 1,
+    })
+    url = f"{CANDLES_URL[market].format(secid=urllib.parse.quote(secid))}?{query}"
+    page = request_json(opener, token, url, timeout=CANDLES_TIMEOUT)
+    if page is None:
+        return []
+    block = page.get("candles") if isinstance(page, dict) else None
+    if not isinstance(block, dict) or not isinstance(block.get("columns"), list) or not isinstance(block.get("data"), list):
+        raise ApimError("формат")
+    columns = [str(c).lower() for c in block["columns"]]
+    candles = []
+    for row in block["data"]:
+        candle = dict(zip(columns, row)) if isinstance(row, list) else {}
+        try:
+            moment = datetime.strptime(str(candle["begin"])[:16], "%Y-%m-%d %H:%M")
+            candles.append((moment.hour * 60 + moment.minute, float(candle["open"]), float(candle["close"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return candles
+
+
+def minute_change(candles, minute):
+    """Изменение цены за минуту, %: закрытие этой минуты к закрытию предыдущей свечи, а если её нет —
+    к открытию минуты. None — в эту минуту сделок не было."""
+    current = [c for c in candles if c[0] == minute]
+    if not current:
+        return None
+    before = [c for c in candles if c[0] < minute]
+    base = max(before)[2] if before else current[0][1]
+    return (current[0][2] / base - 1) * 100 if base else None
+
+
+def fmt_change(pct):
+    """«+0,44%», «−0,12%», «0,00%»."""
+    text = f"{abs(pct):.2f}".replace(".", ",")
+    if text == "0,00":
+        return "0,00%"
+    return ("+" if pct > 0 else "−") + text + "%"
+
+
+class PriceMoves:
+    """Изменение цены за минуту алерта — по минутным свечам apim, один запрос на бумагу в сообщении.
+
+    Вторично, как оценка: после первой ошибки и по истечении CANDLES_DEADLINE свечи в этом запуске
+    больше не запрашиваются, сообщения уходят без изменения цены.
+    """
+
+    LOOKBACK = 10  # минут до алерта: у неликвидных бумаг предыдущая свеча бывает не в соседней минуте
+
+    def __init__(self, opener, token, deadline):
+        self.opener, self.token, self.deadline = opener, token, deadline
+        self.failed = None
+
+    def get(self, market, secid, day, minutes):
+        """{минута: изменение, %} для минут алертов; чего нет — нет в ответе."""
+        if self.failed or time.monotonic() > self.deadline:
+            return {}
+        try:
+            candles = fetch_candles(self.opener, self.token, market, secid, day,
+                                    max(min(minutes) - self.LOOKBACK, 0), max(minutes))
+        except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее изменения цены
+            self.failed = e.code if isinstance(e, ApimError) else type(e).__name__
+            print(f"Mega Alerts: изменение цены недоступно ({self.failed}), шлю без него", file=sys.stderr)
+            return {}
+        changes = {m: minute_change(candles, m) for m in minutes}
+        return {m: c for m, c in changes.items() if c is not None}
+
+
 def future_link(secid):
     """Фьючерс в Т-Инвестициях: страница контракта, как ticker_link у акций."""
     return f'<a href="https://www.tbank.ru/invest/futures/{secid}/">{secid}</a>'
 
 
-def build_lines(firsts, day):
+def build_lines(firsts, day, moves=None):
     """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView). «27/10 SBER: Резкий рост,
-    Крупные покупки», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж», «27/10 SRZ6 (SBER): …»."""
-    by_secid, underlyings, symbols = {}, {}, {}
+    Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж», «27/10 SRZ6 (SBER): …».
+
+    Минута и изменение цены за неё (moves) — после последнего типа своей минуты: у типов одной минуты оно общее,
+    а в одном сообщении бывают алерты нескольких минут (всё, что вышло между запусками)."""
+    by_secid, underlyings, symbols, markets = {}, {}, {}, {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
-        types.setdefault(alert["type"], {"time": alert["time"], "keys": []})["keys"].append(key)
+        types.setdefault(alert["type"], {"time": alert["time"], "minute": alert["minute"], "keys": []})["keys"].append(key)
         underlyings[alert["secid"]] = alert.get("underlying")
         symbols[alert["secid"]] = alert.get("tv")
+        markets[alert["secid"]] = "eq" if alert.get("scope", "eq") == "eq" else "fo"
 
     lines = []
     for secid, types in by_secid.items():
         underlying = underlyings[secid]
         name = f"{future_link(secid)} ({underlying})" if underlying else ticker_link("RUS:" + secid)
-        text = f"{day:%d/%m} {name}: " + ", ".join(label(t) for t in types)
+        minutes = sorted({e["minute"] for e in types.values()})
+        changes = moves.get(markets[secid], secid, day, minutes) if moves else {}
+        entries = list(types.items())
+        names = []
+        for i, (alert_type, entry) in enumerate(entries):
+            text = label(alert_type)
+            last_of_minute = i + 1 == len(entries) or entries[i + 1][1]["minute"] != entry["minute"]
+            if last_of_minute and entry["minute"] in changes:
+                text += f" ({entry['time'][:5]}, цена {fmt_change(changes[entry['minute']])})"
+            names.append(text)
+        text = f"{day:%d/%m} {name}: " + ", ".join(names)
         first_time = min(e["time"] for e in types.values())
         lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid]))
 
@@ -461,7 +558,7 @@ def register_ok(state):
     save_state(state)
 
 
-def process(state, keys, day, alerts, now, header=None, ratings=None):
+def process(state, keys, day, alerts, now, header=None, ratings=None, moves=None):
     """Отправить новые алерты дня: (новых, повторов, сообщений).
 
     Повторы сразу помечаются увиденными без отправки; ключи каждого доставленного сообщения тоже сразу
@@ -482,7 +579,7 @@ def process(state, keys, day, alerts, now, header=None, ratings=None):
     if header is None and now - oldest > timedelta(minutes=LATE_AFTER):
         header = "С опозданием:"
 
-    messages = split_messages(build_lines(firsts, day), header, ratings)
+    messages = split_messages(build_lines(firsts, day, moves), header, ratings)
     for i, (text, message_keys, secid) in enumerate(messages):
         if i:
             time.sleep(1)
@@ -544,9 +641,11 @@ def main():
         return
 
     ratings = Ratings()
+    moves = PriceMoves(opener, token, time.monotonic() + CANDLES_DEADLINE)
     if catch_up:
         tail = select(tail_rows, yesterday) + [a for a in select(fo_tail, yesterday, "fo") if a["scope"] in known]
-        new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:", ratings=ratings)
+        new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:",
+                                       ratings=ratings, moves=moves)
         print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows) + len(fo_tail)}, "
               f"по нашим тикерам и фьючерсам {len(tail)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
@@ -561,7 +660,7 @@ def main():
         save_state(state)
         print(f"Mega Alerts: базовая точка для {', '.join(new_scopes)}, алертов {len(quiet)}")
 
-    new, repeats, parts = process(state, keys, today, alerts + fo_alerts, now, ratings=ratings)
+    new, repeats, parts = process(state, keys, today, alerts + fo_alerts, now, ratings=ratings, moves=moves)
     save_state(state)
     print(f"Mega Alerts: строк за день {len(rows) + len(fo_rows or [])}, по нашим тикерам {len(alerts)}, "
           f"по фьючерсам {len(fo_alerts)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
