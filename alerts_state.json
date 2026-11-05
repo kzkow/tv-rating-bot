@@ -420,8 +420,8 @@
   "fee9be9484c2a559",
   "ff826832b822f3d8"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false,
  "markets": [
   "eq",
