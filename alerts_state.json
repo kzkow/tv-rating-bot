@@ -1,7 +1,17 @@
 {
  "kid": "c7ee4559",
  "date": "2026-11-06",
- "seen": [],
+ "seen": [
+  "437704b3a81f00b6",
+  "589f6b05d46b8783",
+  "8bc8dab17d4dcf2c",
+  "a43e359c4c65fcf5",
+  "bf78ced0379082f2",
+  "cedfb46442aa87bc",
+  "deddf007e954d86f",
+  "e84c025d5c2dad15",
+  "f474c0a9f72e9dec"
+ ],
  "error": null,
  "error_count": 0,
  "error_notified": false,
