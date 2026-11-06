@@ -1,8 +1,8 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
 с изменением цены за минуту алерта и текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа)
 последней строкой сообщения,
-и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции — без кнопок,
-с дневной оценкой TradingView, если она там есть.
+и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции,
+с дневной оценкой TradingView, если она там есть. Кнопки «Купить» / «Продать» — у акций и фьючерсов на них.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
@@ -225,15 +225,16 @@ def future_of(asset):
 def nearest_contract(day):
     """Окончание кода ближайшего фьючерса на акцию на этот день: «Z6» — декабрь 2026.
 
-    Фьючерсы на акции — квартальные, экспирация в третью пятницу марта, июня, сентября и декабря.
-    В день экспирации это ещё истекающий контракт, со следующего дня — следующий. Перенос экспирации
-    из-за праздника не учитывается. Вечные (SBERF) сюда не попадают: в конце кода нет цифры года.
+    Фьючерсы на акции — квартальные, экспирация в третью пятницу марта, июня, сентября и декабря; последний
+    день торгов — четверг перед ней (ISS LASTTRADEDATE: SRU6 — 17.09.2026), в пятницу торгов уже нет.
+    В последний день торгов это ещё истекающий контракт, с пятницы — следующий. Перенос из-за праздника
+    не учитывается. Вечные (SBERF) сюда не попадают: в конце кода нет цифры года.
     """
     year, month = day.year, day.month
     while True:
         if month in QUARTER_CODES:
             first = date(year, month, 1)
-            if day <= first + timedelta(days=(4 - first.weekday()) % 7 + 14):
+            if day <= first + timedelta(days=(4 - first.weekday()) % 7 + 13):
                 return f"{QUARTER_CODES[month]}{year % 10}"
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
 
@@ -408,18 +409,21 @@ def future_link(secid):
 
 
 def build_lines(firsts, day, moves=None):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView). «27/10 SBER: Резкий рост,
-    Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж», «27/10 SRZ6 (SBER): …».
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView, есть ли кнопки). «27/10 SBER:
+    Резкий рост, Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес
+    продаж», «27/10 SRZ6 (SBER): …». Кнопки — у акций и фьючерсов на них (fo-shares), у макро — нет.
 
     Минута и изменение цены за неё (moves) — после последнего типа своей минуты: у типов одной минуты оно общее,
     а в одном сообщении бывают алерты нескольких минут (всё, что вышло между запусками)."""
-    by_secid, underlyings, symbols, markets = {}, {}, {}, {}
+    by_secid, underlyings, symbols, markets, tradable = {}, {}, {}, {}, {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
         types.setdefault(alert["type"], {"time": alert["time"], "minute": alert["minute"], "keys": []})["keys"].append(key)
         underlyings[alert["secid"]] = alert.get("underlying")
         symbols[alert["secid"]] = alert.get("tv")
-        markets[alert["secid"]] = "eq" if alert.get("scope", "eq") == "eq" else "fo"
+        scope = alert.get("scope", "eq")
+        markets[alert["secid"]] = "eq" if scope == "eq" else "fo"
+        tradable[alert["secid"]] = scope in ("eq", "fo-shares")
 
     lines = []
     for secid, types in by_secid.items():
@@ -437,7 +441,8 @@ def build_lines(firsts, day, moves=None):
             names.append(text)
         text = f"{day:%d/%m} {name}: " + ", ".join(names)
         first_time = min(e["time"] for e in types.values())
-        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid]))
+        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid],
+                      tradable[secid]))
 
     lines.sort(key=lambda line: line[0])
     return lines
@@ -489,21 +494,22 @@ class Ratings:
 
 
 def split_messages(lines, header, ratings=None):
-    """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом,
-    оценка TradingView — последней строкой, если она есть."""
+    """Одно сообщение на бумагу: (текст, ключи, тикер для кнопок или None — без кнопок). Заголовок («За 13.10:»,
+    «С опозданием:») — в каждом, оценка TradingView — последней строкой, если она есть."""
     head = f"{header}\n" if header else ""
-    labels = ratings.get([tv for *_, tv in lines if tv]) if ratings else {}
+    labels = ratings.get([tv for _, _, _, tv, _ in lines if tv]) if ratings else {}
     messages = []
-    for (_, secid), text, keys, tv in lines:
+    for (_, secid), text, keys, tv, tradable in lines:
         label = labels.get(tv)
         tail = f"\nОценка: {label}" if label else ""
-        messages.append((head + text + tail, keys, secid))
+        messages.append((head + text + tail, keys, secid if tradable else None))
     return messages
 
 
 def deliver(text, secid):
-    # Кнопки «Купить» / «Продать» — только у акций: заявки tv-orders умеют только их.
-    trade = "RUS:" + secid if secid in SECIDS else None
+    # Кнопки «Купить» / «Продать» — у акций и фьючерсов на них (secid), у макро-фьючерсов — нет (None):
+    # заявки tv-orders умеют только первые.
+    trade = "RUS:" + secid if secid else None
     try:
         send(text, trade=trade)
     except RuntimeError as e:
