@@ -11,8 +11,8 @@
   "8655e5281e75751f",
   "af6e43ccc4011cd9"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false,
  "markets": [
   "eq",
