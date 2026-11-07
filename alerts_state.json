@@ -2,8 +2,8 @@
  "kid": "c7ee4559",
  "date": "2026-11-08",
  "seen": [],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "markets": [
   "eq",
