@@ -1,8 +1,8 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
 с изменением цены за минуту алерта и текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа)
 последней строкой сообщения,
-и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции,
-с дневной оценкой TradingView, если она там есть. Кнопки «Купить» / «Продать» — у акций и фьючерсов на них.
+и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции — без кнопок,
+с дневной оценкой TradingView, если она там есть.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
@@ -409,21 +409,18 @@ def future_link(secid):
 
 
 def build_lines(firsts, day, moves=None):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView, есть ли кнопки). «27/10 SBER:
-    Резкий рост, Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес
-    продаж», «27/10 SRZ6 (SBER): …». Кнопки — у акций и фьючерсов на них (fo-shares), у макро — нет.
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView). «27/10 SBER: Резкий рост,
+    Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж», «27/10 SRZ6 (SBER): …».
 
     Минута и изменение цены за неё (moves) — после последнего типа своей минуты: у типов одной минуты оно общее,
     а в одном сообщении бывают алерты нескольких минут (всё, что вышло между запусками)."""
-    by_secid, underlyings, symbols, markets, tradable = {}, {}, {}, {}, {}
+    by_secid, underlyings, symbols, markets = {}, {}, {}, {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
         types.setdefault(alert["type"], {"time": alert["time"], "minute": alert["minute"], "keys": []})["keys"].append(key)
         underlyings[alert["secid"]] = alert.get("underlying")
         symbols[alert["secid"]] = alert.get("tv")
-        scope = alert.get("scope", "eq")
-        markets[alert["secid"]] = "eq" if scope == "eq" else "fo"
-        tradable[alert["secid"]] = scope in ("eq", "fo-shares")
+        markets[alert["secid"]] = "eq" if alert.get("scope", "eq") == "eq" else "fo"
 
     lines = []
     for secid, types in by_secid.items():
@@ -441,8 +438,7 @@ def build_lines(firsts, day, moves=None):
             names.append(text)
         text = f"{day:%d/%m} {name}: " + ", ".join(names)
         first_time = min(e["time"] for e in types.values())
-        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid],
-                      tradable[secid]))
+        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid]))
 
     lines.sort(key=lambda line: line[0])
     return lines
@@ -494,22 +490,22 @@ class Ratings:
 
 
 def split_messages(lines, header, ratings=None):
-    """Одно сообщение на бумагу: (текст, ключи, тикер для кнопок или None — без кнопок). Заголовок («За 13.10:»,
-    «С опозданием:») — в каждом, оценка TradingView — последней строкой, если она есть."""
+    """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом,
+    оценка TradingView — последней строкой, если она есть."""
     head = f"{header}\n" if header else ""
-    labels = ratings.get([tv for _, _, _, tv, _ in lines if tv]) if ratings else {}
+    labels = ratings.get([tv for *_, tv in lines if tv]) if ratings else {}
     messages = []
-    for (_, secid), text, keys, tv, tradable in lines:
+    for (_, secid), text, keys, tv in lines:
         label = labels.get(tv)
         tail = f"\nОценка: {label}" if label else ""
-        messages.append((head + text + tail, keys, secid if tradable else None))
+        messages.append((head + text + tail, keys, secid))
     return messages
 
 
 def deliver(text, secid):
-    # Кнопки «Купить» / «Продать» — у акций и фьючерсов на них (secid), у макро-фьючерсов — нет (None):
-    # заявки tv-orders умеют только первые.
-    trade = "RUS:" + secid if secid else None
+    # Кнопки «Купить» / «Продать» — только у акций: фьючерсы брокер без маржинальной торговли на счёте
+    # не берёт (30051), кнопки под ними убраны 08.11.2026.
+    trade = "RUS:" + secid if secid in SECIDS else None
     try:
         send(text, trade=trade)
     except RuntimeError as e:

@@ -91,7 +91,7 @@ def trade_buttons(ticker):
 
 
 def send(text, silent=False, trade=None):
-    """trade — тикер («RUS:SBER», у фьючерса — «RUS:SRZ6»): под сообщением будут кнопки «Купить» и «Продать»."""
+    """trade — тикер («RUS:SBER»): под сообщением будут кнопки «Купить» и «Продать»."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
