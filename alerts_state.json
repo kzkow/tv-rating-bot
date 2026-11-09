@@ -157,8 +157,8 @@
   "ff05c1c833ae80ae",
   "ffc3ef4b63459081"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "markets": [
   "eq",
