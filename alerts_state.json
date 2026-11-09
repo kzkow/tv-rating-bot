@@ -6,8 +6,8 @@
   "ac76597cab406768",
   "f92b71c550a90510"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "markets": [
   "eq",
