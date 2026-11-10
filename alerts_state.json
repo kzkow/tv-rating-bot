@@ -224,8 +224,8 @@
   "ffeccb8798b54b58"
  ],
  "error": "не JSON",
- "error_count": 2,
- "error_notified": false,
+ "error_count": 3,
+ "error_notified": true,
  "markets": [
   "eq",
   "fo",
