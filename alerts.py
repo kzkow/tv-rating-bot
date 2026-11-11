@@ -1,13 +1,11 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
 с изменением цены за минуту алерта и текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа)
-последней строкой сообщения,
-и по фьючерсам — макро (доллар, юань, нефть, индексы, золото) и ближайшим на те же акции — без кнопок,
-с дневной оценкой TradingView, если она там есть.
+последней строкой сообщения.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
 
-Источник — https://apim.moex.com/iss/datashop/algopack/{eq,fo}/alerts.json (тариф ALGOPACK Promo).
+Источник — https://apim.moex.com/iss/datashop/algopack/eq/alerts.json (тариф ALGOPACK Promo).
 Состояние — alerts_state.json. Репозиторий публичный, поэтому там только HMAC-хэши ключей алертов,
 а в лог пишутся только счётчики: содержимое алертов (данные MOEX) уходит только в Telegram.
 """
@@ -24,17 +22,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from bot import COLUMN, TICKERS, fetch_values, rating, send, ticker_link
 
-APIM_URL = "https://apim.moex.com/iss/datashop/algopack/{market}/alerts.json"  # eq — акции, fo — фьючерсы
+APIM_URL = "https://apim.moex.com/iss/datashop/algopack/eq/alerts.json"
 # Минутные свечи: с ключом apim отдаёт их без задержки (анонимный ISS — с задержкой 15 минут).
-CANDLES_URL = {
-    "eq": "https://apim.moex.com/iss/engines/stock/markets/shares/boards/tqbr/securities/{secid}/candles.json",
-    "fo": "https://apim.moex.com/iss/engines/futures/markets/forts/boards/rfud/securities/{secid}/candles.json",
-}
+CANDLES_URL = "https://apim.moex.com/iss/engines/stock/markets/shares/boards/tqbr/securities/{secid}/candles.json"
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
 CERT_FILE = Path(__file__).with_name("certs") / "russian_trusted_root_ca.pem"
 # SHA-256 DER корня «Russian Trusted Root CA», действует до 2032-02-27.
@@ -44,26 +39,6 @@ STATE_FILE = Path(os.environ.get("ALERTS_STATE_FILE") or Path(__file__).with_nam
 
 MSK = timezone(timedelta(hours=3))
 SECIDS = {t.split(":")[1] for t in TICKERS}
-# Фьючерсы: базовый актив (asset_code) → название в сообщении. Фильтр по активу, а не по контракту:
-# MXZ6 при экспирации сменится на MXH7. Вечные фьючерсы — свой актив (USDRUBTOM, CNYRUBTOM, GLDRUBTOM).
-# Срочные доллар (Si), юань (CNY) и золото (GOLD) убраны 02.11.2026 по решению владельца — остались вечные.
-FUTURES = {
-    "USDRUBTOM": "доллар",
-    "CNYRUBTOM": "юань",
-    "BR": "нефть Brent",
-    "MIX": "индекс Мосбиржи",
-    "RTS": "индекс РТС",
-    "GLDRUBTOM": "золото",
-}
-# Фьючерсы на акции из TICKERS (с 03.11.2026) — тоже по активу, но только ближайший контракт (nearest_contract).
-# Обычно актив = тикер акции (VKCO: VKZ6, VKH7), здесь — где MOEX называет его иначе. TATN, SNGR — обычки, не наши.
-SHARE_ASSETS = {
-    "SBRF": "SBER", "SBPR": "SBERP", "NOTKM": "NVTK", "PLZLM": "PLZL", "SNGP": "SNGSP",
-    "TATP": "TATNP", "MTSI": "MTSS", "CHMFM": "CHMF", "TRNF": "TRNFP",
-}
-QUARTER_CODES = {3: "H", 6: "M", 9: "U", 12: "Z"}  # месяц экспирации → буква в коде контракта (SRZ6 — декабрь 2026)
-# Группы фьючерсов в state["markets"]: новая группа в работающем боте начинает с молчаливой базовой точки.
-FO_SCOPES = ["fo", "fo-shares"]
 REQUIRED_COLUMNS = {"tradedate", "tradetime", "secid", "alert_type"}
 
 REQUEST_TIMEOUT = 20      # секунд на запрос
@@ -93,9 +68,6 @@ LABELS = {
     "pr_change_min": "Рекордное падение за минуту",
     "pr_high_max": "Максимум цены за 90 дней",
     "pr_low_min": "Минимум цены за 90 дней",
-    # Только у фьючерсов: открытый интерес — сколько контрактов открыто, его скачок — крупный вход или выход.
-    "oi_close_change_99_9_pctl+": "Резкий рост открытого интереса",
-    "oi_close_change_99_9_pctl-": "Резкое падение открытого интереса",
 }
 # Не присылаются по решению владельца (22.10.2026): общий объём за минуту без направления сделок.
 SKIPPED_TYPES = {"vol_99_9_pctl", "vol_max"}
@@ -126,10 +98,10 @@ def apim_opener():
     return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect)
 
 
-def get_page(opener, token, day, start, market="eq"):
+def get_page(opener, token, day, start):
     """Одна страница ответа как dict; None, если за день данных нет (404)."""
     query = urllib.parse.urlencode({"date": day.isoformat(), "start": start})
-    return request_json(opener, token, f"{APIM_URL.format(market=market)}?{query}")
+    return request_json(opener, token, f"{APIM_URL}?{query}")
 
 
 def request_json(opener, token, url, timeout=REQUEST_TIMEOUT):
@@ -191,12 +163,12 @@ def parse_page(page):
     return rows, total
 
 
-def fetch_day(opener, token, day, deadline, market="eq"):
+def fetch_day(opener, token, day, deadline):
     rows, start = [], 0
     for _ in range(MAX_PAGES):
         if time.monotonic() > deadline:
             raise ApimError("timeout")
-        page = get_page(opener, token, day, start, market)
+        page = get_page(opener, token, day, start)
         if page is None:
             break
         page_rows, total = parse_page(page)
@@ -211,61 +183,13 @@ def fetch_day(opener, token, day, deadline, market="eq"):
     return rows
 
 
-def future_of(asset):
-    """Фьючерс по активу: (подпись в сообщении, группа FO_SCOPES); None — актив не наш.
-    Подпись — название макро-актива («доллар») или тикер акции («SBER»)."""
-    if not isinstance(asset, str):
-        return None
-    if asset in FUTURES:
-        return FUTURES[asset], "fo"
-    share = SHARE_ASSETS.get(asset, asset)
-    return (share, "fo-shares") if share in SECIDS else None
-
-
-def nearest_contract(day):
-    """Окончание кода ближайшего фьючерса на акцию на этот день: «Z6» — декабрь 2026.
-
-    Фьючерсы на акции — квартальные, экспирация в третью пятницу марта, июня, сентября и декабря; последний
-    день торгов — четверг перед ней (ISS LASTTRADEDATE: SRU6 — 17.09.2026), в пятницу торгов уже нет.
-    В последний день торгов это ещё истекающий контракт, с пятницы — следующий. Перенос из-за праздника
-    не учитывается. Вечные (SBERF) сюда не попадают: в конце кода нет цифры года.
-    """
-    year, month = day.year, day.month
-    while True:
-        if month in QUARTER_CODES:
-            first = date(year, month, 1)
-            if day <= first + timedelta(days=(4 - first.weekday()) % 7 + 13):
-                return f"{QUARTER_CODES[month]}{year % 10}"
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-
-
-def tv_future(secid, day):
-    """Символ фьючерса в TradingView — с полным годом: SRZ6 → RUS:SRZ2026. Вечных фьючерсов MOEX
-    (USDRUBF, SBERF) в TradingView нет — None. Есть не все контракты: из наших акций на 03.11.2026 — 13 из 25."""
-    if not secid[-1:].isdigit():
-        return None
-    year = day.year + (int(secid[-1]) - day.year) % 10
-    return f"RUS:{secid[:-1]}{year}"
-
-
-def select(rows, day, market="eq"):
-    """Алерты по нашим тикерам (или фьючерсам: макро и ближайшим на наши акции) за этот день, кроме SKIPPED_TYPES;
-    битые строки пропускаются."""
+def select(rows, day):
+    """Алерты по нашим тикерам за этот день, кроме SKIPPED_TYPES; битые строки пропускаются."""
     alerts, bad = [], 0
-    nearest = nearest_contract(day)
     for row in rows:
         secid = row.get("secid")
-        if not isinstance(secid, str) or str(row.get("tradedate")) != day.isoformat():
+        if not isinstance(secid, str) or secid not in SECIDS or str(row.get("tradedate")) != day.isoformat():
             continue
-        if market == "eq":
-            if secid not in SECIDS:
-                continue
-            underlying, scope, tv = None, "eq", "RUS:" + secid
-        else:
-            future = future_of(row.get("asset_code"))
-            if future is None or (future[1] == "fo-shares" and not secid.endswith(nearest)):
-                continue
-            (underlying, scope), tv = future, tv_future(secid, day)
         if str(row.get("alert_type")) in SKIPPED_TYPES:
             continue
         try:
@@ -275,9 +199,6 @@ def select(rows, day, market="eq"):
                 "minute": moment.hour * 60 + moment.minute,
                 "secid": secid,
                 "type": str(row["alert_type"]),
-                "underlying": underlying,
-                "scope": scope,
-                "tv": tv,
             })
         except (KeyError, ValueError):
             bad += 1
@@ -330,14 +251,14 @@ def split_repeats(new, day_alerts):
     return firsts, repeats
 
 
-def fetch_candles(opener, token, market, secid, day, start, end):
+def fetch_candles(opener, token, secid, day, start, end):
     """Минутные свечи бумаги за минуты дня start..end (от полуночи): [(минута, open, close)]."""
     query = urllib.parse.urlencode({
         "from": f"{day.isoformat()}T{start // 60:02d}:{start % 60:02d}:00",
         "till": f"{day.isoformat()}T{end // 60:02d}:{end % 60:02d}:59",
         "interval": 1,
     })
-    url = f"{CANDLES_URL[market].format(secid=urllib.parse.quote(secid))}?{query}"
+    url = f"{CANDLES_URL.format(secid=urllib.parse.quote(secid))}?{query}"
     page = request_json(opener, token, url, timeout=CANDLES_TIMEOUT)
     if page is None:
         return []
@@ -388,12 +309,12 @@ class PriceMoves:
         self.opener, self.token, self.deadline = opener, token, deadline
         self.failed = None
 
-    def get(self, market, secid, day, minutes):
+    def get(self, secid, day, minutes):
         """{минута: изменение, %} для минут алертов; чего нет — нет в ответе."""
         if self.failed or time.monotonic() > self.deadline:
             return {}
         try:
-            candles = fetch_candles(self.opener, self.token, market, secid, day,
+            candles = fetch_candles(self.opener, self.token, secid, day,
                                     max(min(minutes) - self.LOOKBACK, 0), max(minutes))
         except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее изменения цены
             self.failed = e.code if isinstance(e, ApimError) else type(e).__name__
@@ -403,31 +324,21 @@ class PriceMoves:
         return {m: c for m, c in changes.items() if c is not None}
 
 
-def future_link(secid):
-    """Фьючерс в Т-Инвестициях: страница контракта, как ticker_link у акций."""
-    return f'<a href="https://www.tbank.ru/invest/futures/{secid}/">{secid}</a>'
-
-
 def build_lines(firsts, day, moves=None):
-    """Строки сообщения, одна на бумагу: (порядок, текст, ключи, символ TradingView). «27/10 SBER: Резкий рост,
-    Крупные покупки (07:21, цена +0,44%)», у фьючерса — с активом: «27/10 USDRUBF (доллар): Перевес продаж», «27/10 SRZ6 (SBER): …».
+    """Строки сообщения, одна на бумагу: (порядок, текст, ключи). «27/10 SBER: Резкий рост, Крупные покупки
+    (07:21, цена +0,44%)».
 
     Минута и изменение цены за неё (moves) — после последнего типа своей минуты: у типов одной минуты оно общее,
     а в одном сообщении бывают алерты нескольких минут (всё, что вышло между запусками)."""
-    by_secid, underlyings, symbols, markets = {}, {}, {}, {}
+    by_secid = {}
     for key, alert in sorted(firsts, key=lambda item: item[1]["time"]):
         types = by_secid.setdefault(alert["secid"], {})
         types.setdefault(alert["type"], {"time": alert["time"], "minute": alert["minute"], "keys": []})["keys"].append(key)
-        underlyings[alert["secid"]] = alert.get("underlying")
-        symbols[alert["secid"]] = alert.get("tv")
-        markets[alert["secid"]] = "eq" if alert.get("scope", "eq") == "eq" else "fo"
 
     lines = []
     for secid, types in by_secid.items():
-        underlying = underlyings[secid]
-        name = f"{future_link(secid)} ({underlying})" if underlying else ticker_link("RUS:" + secid)
         minutes = sorted({e["minute"] for e in types.values()})
-        changes = moves.get(markets[secid], secid, day, minutes) if moves else {}
+        changes = moves.get(secid, day, minutes) if moves else {}
         entries = list(types.items())
         names = []
         for i, (alert_type, entry) in enumerate(entries):
@@ -436,29 +347,25 @@ def build_lines(firsts, day, moves=None):
             if last_of_minute and entry["minute"] in changes:
                 text += f" ({entry['time'][:5]}, цена {fmt_change(changes[entry['minute']])})"
             names.append(text)
-        text = f"{day:%d/%m} {name}: " + ", ".join(names)
+        text = f"{day:%d/%m} {ticker_link('RUS:' + secid)}: " + ", ".join(names)
         first_time = min(e["time"] for e in types.values())
-        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]], symbols[secid]))
+        lines.append(((first_time, secid), text, [k for e in types.values() for k in e["keys"]]))
 
     lines.sort(key=lambda line: line[0])
     return lines
 
 
 def rating_line(values):
-    """(1 день, 1 ч, 2 ч, 4 ч) → «покупать (1 покупать, 2 нейтрально, 4 продавать)»; нет значения — «—».
-    Нет ни одной часовой (у фьючерсов TradingView отдаёт только дневную) — без скобок: «покупать»."""
+    """(1 день, 1 ч, 2 ч, 4 ч) → «покупать (1 покупать, 2 нейтрально, 4 продавать)»; нет значения — «—»."""
     day, *hours = (rating(v).lower() if v is not None else "—" for v in values)
-    if all(v is None for v in values[1:]):
-        return day
     return f"{day} ({', '.join(f'{h} {label}' for h, label in zip(RATING_HOURS, hours))})"
 
 
 class Ratings:
-    """Текущая «Общая оценка» TradingView по бумагам и фьючерсам — для строки в сообщении алерта: на 1 день
-    и в скобках на RATING_HOURS часов.
+    """Текущая «Общая оценка» TradingView по бумагам — для строки в сообщении алерта: на 1 день и в скобках
+    на RATING_HOURS часов.
 
-    Запрашивается только когда есть что отправить, все таймфреймы — одним запросом: акции — все TICKERS
-    один раз за запуск, фьючерсы — те, что в сообщениях (их символы известны только из алертов).
+    Запрашивается один раз за запуск (все таймфреймы — одним запросом) и только когда есть что отправить.
     Оценка вторична: если TradingView недоступен, алерты уходят без неё.
     """
 
@@ -467,64 +374,50 @@ class Ratings:
     COLUMNS = [COLUMN] + [f"{COLUMN}|{h * 60}" for h in RATING_HOURS]
 
     def __init__(self):
-        self._labels, self._asked = {}, set()
+        self._labels = None
 
-    def get(self, symbols):
-        """{символ: строка оценки} для символов TradingView ("RUS:SBER", "RUS:SRZ2026"); без оценки — нет в ответе."""
-        missing = set(symbols) - self._asked
-        shares = set(TICKERS)
-        if missing & shares:
-            self._fetch(TICKERS, "russia")
-        if missing - shares:
-            self._fetch(sorted(missing - shares), "futures")
-        return {s: self._labels[s] for s in symbols if s in self._labels}
-
-    def _fetch(self, tickers, market):
-        self._asked.update(tickers)
-        try:
-            values = fetch_values(timeout=self.TIMEOUT, columns=self.COLUMNS, tickers=tickers, market=market)
-        except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее оценки
-            print(f"Mega Alerts: оценка TradingView недоступна ({type(e).__name__}), шлю без неё", file=sys.stderr)
-            values = {}
-        self._labels.update((t, rating_line(v)) for t, v in values.items())
+    def get(self, secid):
+        if self._labels is None:
+            try:
+                values = fetch_values(timeout=self.TIMEOUT, columns=self.COLUMNS)
+            except Exception as e:  # noqa: BLE001 — сеть, формат ответа: алерт важнее оценки
+                print(f"Mega Alerts: оценка TradingView недоступна ({type(e).__name__}), шлю без неё", file=sys.stderr)
+                values = {}
+            self._labels = {t.split(":")[1]: rating_line(v) for t, v in values.items()}
+        return self._labels.get(secid)
 
 
 def split_messages(lines, header, ratings=None):
     """Одно сообщение на бумагу: (текст, ключи, тикер). Заголовок («За 13.10:», «С опозданием:») — в каждом,
     оценка TradingView — последней строкой, если она есть."""
     head = f"{header}\n" if header else ""
-    labels = ratings.get([tv for *_, tv in lines if tv]) if ratings else {}
     messages = []
-    for (_, secid), text, keys, tv in lines:
-        label = labels.get(tv)
+    for (_, secid), text, keys in lines:
+        label = ratings.get(secid) if ratings else None
         tail = f"\nОценка: {label}" if label else ""
         messages.append((head + text + tail, keys, secid))
     return messages
 
 
 def deliver(text, secid):
-    # Кнопки «Купить» / «Продать» — только у акций: фьючерсы брокер без маржинальной торговли на счёте
-    # не берёт (30051), кнопки под ними убраны 08.11.2026.
-    trade = "RUS:" + secid if secid in SECIDS else None
     try:
-        send(text, trade=trade)
+        send(text, trade="RUS:" + secid)
     except RuntimeError as e:
         # 429 Too Many Requests: Telegram говорит, сколько подождать. Ждём один раз.
         match = re.search(r'"retry_after":\s*(\d+)', str(e))
         if not match:
             raise
         time.sleep(min(int(match.group(1)), 30) + 1)
-        send(text, trade=trade)
+        send(text, trade="RUS:" + secid)
 
 
 def load_state(kid):
-    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False,
-             "markets": []}
+    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False}
     if not STATE_FILE.exists():
         return fresh
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    # Состояние без markets — до фьючерсов (02.11.2026): в seen только акции.
-    state.setdefault("markets", ["eq"])
+    # markets — список рынков из времён алертов по фьючерсам (02–10.11.2026): больше не нужен.
+    state.pop("markets", None)
     if state.get("kid") != kid:
         # Сменился API-ключ — старые хэши несравнимы: начинаем заново молча, статус ошибок сохраняем.
         for field in ("error", "error_count", "error_notified"):
@@ -622,50 +515,27 @@ def main():
     register_ok(state)
     alerts = select(rows, today)
 
-    # Фьючерсы вторичны: сбой срочного рынка не задерживает акции и не шлёт «недоступны» —
-    # их алерты придут следующим запуском. Хвост за вчера — только по группам, которые вчера уже присылались.
-    known = [s for s in FO_SCOPES if s in state["markets"]]
-    try:
-        fo_tail = fetch_day(opener, token, yesterday, deadline, "fo") if catch_up and known else []
-        fo_rows = fetch_day(opener, token, today, deadline, "fo")
-    except ApimError as e:
-        print(f"Mega Alerts: фьючерсы недоступны: {e.code}", file=sys.stderr)
-        fo_tail, fo_rows = [], None
-    fo_alerts = select(fo_rows, today, "fo") if fo_rows is not None else []
-
     if not baselined or state["date"] not in (today.isoformat(), yesterday.isoformat()):
         # Первый успешный запрос (или разрыв больше суток): запоминаем день молча, без потока с утра.
-        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts + fo_alerts}),
-                     markets=["eq"] + (FO_SCOPES if fo_rows is not None else []))
+        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts}))
         save_state(state)
-        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}, "
-              f"по фьючерсам {len(fo_alerts)}")
+        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}")
         return
 
     ratings = Ratings()
     moves = PriceMoves(opener, token, time.monotonic() + CANDLES_DEADLINE)
     if catch_up:
-        tail = select(tail_rows, yesterday) + [a for a in select(fo_tail, yesterday, "fo") if a["scope"] in known]
+        tail = select(tail_rows, yesterday)
         new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:",
                                        ratings=ratings, moves=moves)
-        print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows) + len(fo_tail)}, "
-              f"по нашим тикерам и фьючерсам {len(tail)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
+        print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
+              f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
 
-    # После хвоста: он обнуляет seen и стёр бы эту базовую точку.
-    new_scopes = [s for s in FO_SCOPES if s not in known] if fo_rows is not None else []
-    if new_scopes:
-        # Группа фьючерсов добавлена в работающего бота: уже вышедшие за день — молча, как базовая точка.
-        quiet = [a for a in fo_alerts if a["scope"] in new_scopes]
-        state.update(seen=sorted(set(state["seen"]) | {keys.of(today, a) for a in quiet}),
-                     markets=state["markets"] + new_scopes)
-        save_state(state)
-        print(f"Mega Alerts: базовая точка для {', '.join(new_scopes)}, алертов {len(quiet)}")
-
-    new, repeats, parts = process(state, keys, today, alerts + fo_alerts, now, ratings=ratings, moves=moves)
+    new, repeats, parts = process(state, keys, today, alerts, now, ratings=ratings, moves=moves)
     save_state(state)
-    print(f"Mega Alerts: строк за день {len(rows) + len(fo_rows or [])}, по нашим тикерам {len(alerts)}, "
-          f"по фьючерсам {len(fo_alerts)}, новых {new}, повторов {repeats}, отправлено сообщений {parts}")
+    print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
+          f"повторов {repeats}, отправлено сообщений {parts}")
 
 
 if __name__ == "__main__":

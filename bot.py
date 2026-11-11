@@ -31,7 +31,7 @@ TICKERS = [
     "RUS:DOMRF", "RUS:MAGN", "RUS:TRNFP", "RUS:VKCO", "RUS:AFLT",
 ]
 
-SCANNER_URL = "https://scanner.tradingview.com/{market}/scan"  # russia — акции, futures — фьючерсы
+SCANNER_URL = "https://scanner.tradingview.com/russia/scan"
 # Общая оценка на дневном таймфрейме. Другие таймфреймы — суффиксом: "Recommend.All|60", "|1W" и т.д.
 COLUMN = "Recommend.All"
 
@@ -51,21 +51,19 @@ def rating(value):
     return "Активно покупать"
 
 
-def fetch_values(timeout=30, columns=(COLUMN,), tickers=TICKERS, market="russia"):
+def fetch_values(timeout=30, columns=(COLUMN,)):
     """Значения «Общей оценки» по бумагам, по одному на колонку: {"RUS:SBER": (0.38, ...), ...}.
 
     None — по этой колонке значения нет; бумаги без единого значения пропущены.
-    Фьючерсы — market="futures", символы с полным годом: "RUS:SRZ2026".
     """
-    body = json.dumps({"symbols": {"tickers": list(tickers)}, "columns": list(columns)}).encode()
-    req = urllib.request.Request(SCANNER_URL.format(market=market), data=body, headers={"Content-Type": "application/json"})
+    body = json.dumps({"symbols": {"tickers": TICKERS}, "columns": list(columns)}).encode()
+    req = urllib.request.Request(SCANNER_URL, data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.load(resp)
 
     values = {row["s"]: tuple(row["d"]) for row in data["data"] if any(v is not None for v in row["d"])}
-    missing = [t for t in tickers if t not in values]
-    # Только акции: список фьючерсов берётся из алертов MOEX, а лог Actions публичный.
-    if missing and market == "russia":
+    missing = [t for t in TICKERS if t not in values]
+    if missing:
         print(f"Нет оценки для: {', '.join(missing)}", file=sys.stderr)
     return values
 
