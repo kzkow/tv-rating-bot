@@ -31,10 +31,5 @@
  ],
  "error": null,
  "error_count": 0,
- "error_notified": false,
- "markets": [
-  "eq",
-  "fo",
-  "fo-shares"
- ]
+ "error_notified": false
 }
