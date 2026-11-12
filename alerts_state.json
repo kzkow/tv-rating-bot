@@ -2,7 +2,7 @@
  "kid": "7bfdaf03",
  "date": "2026-11-13",
  "seen": [],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
