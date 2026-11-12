@@ -114,7 +114,7 @@
   "f8fad195a89def01",
   "fdfbc8f95eaf39ed"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false
 }
