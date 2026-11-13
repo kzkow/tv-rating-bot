@@ -147,8 +147,8 @@
   "fd99fa1c3373e7b0",
   "fefd95d3fd4e1cb9"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
