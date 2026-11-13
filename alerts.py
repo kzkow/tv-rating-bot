@@ -1,11 +1,12 @@
 """Mega Alerts MOEX ALGOPACK: присылает в Telegram новые торговые аномалии по тикерам бота
 с изменением цены за минуту алерта и текущей «Общей оценкой» TradingView (1 день, в скобках — 1, 2 и 4 часа)
-последней строкой сообщения.
+последней строкой сообщения. Туда же, под тикером акции, — резкие изменения открытого интереса
+ближайшего фьючерса на неё.
 
 Запуск:
     python alerts.py    # нужен MOEX_ALGOPACK_TOKEN; без TELEGRAM_* локально сообщения печатаются в консоль
 
-Источник — https://apim.moex.com/iss/datashop/algopack/eq/alerts.json (тариф ALGOPACK Promo).
+Источник — https://apim.moex.com/iss/datashop/algopack/{eq,fo}/alerts.json (тариф ALGOPACK Promo).
 Состояние — alerts_state.json. Репозиторий публичный, поэтому там только HMAC-хэши ключей алертов,
 а в лог пишутся только счётчики: содержимое алертов (данные MOEX) уходит только в Telegram.
 """
@@ -22,12 +23,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from bot import COLUMN, TICKERS, fetch_values, rating, send, ticker_link
 
-APIM_URL = "https://apim.moex.com/iss/datashop/algopack/eq/alerts.json"
+APIM_URL = "https://apim.moex.com/iss/datashop/algopack/{market}/alerts.json"  # eq — акции, fo — фьючерсы
 # Минутные свечи: с ключом apim отдаёт их без задержки (анонимный ISS — с задержкой 15 минут).
 CANDLES_URL = "https://apim.moex.com/iss/engines/stock/markets/shares/boards/tqbr/securities/{secid}/candles.json"
 # Сертификат apim выпущен НУЦ Минцифры; корня нет в стандартных хранилищах, поэтому он лежит в репозитории.
@@ -39,6 +40,14 @@ STATE_FILE = Path(os.environ.get("ALERTS_STATE_FILE") or Path(__file__).with_nam
 
 MSK = timezone(timedelta(hours=3))
 SECIDS = {t.split(":")[1] for t in TICKERS}
+# Открытый интерес (с 13.11.2026) берётся у ближайшего фьючерса на акцию и присылается под тикером акции.
+# Актив фьючерса (asset_code) обычно равен тикеру акции (VKCO: VKZ6), здесь — где MOEX называет его иначе.
+SHARE_ASSETS = {
+    "SBRF": "SBER", "SBPR": "SBERP", "NOTKM": "NVTK", "PLZLM": "PLZL", "SNGP": "SNGSP",
+    "TATP": "TATNP", "MTSI": "MTSS", "CHMFM": "CHMF", "TRNF": "TRNFP",
+}
+QUARTER_CODES = {3: "H", 6: "M", 9: "U", 12: "Z"}  # месяц экспирации → буква в коде контракта (SRZ6 — декабрь 2026)
+OI_TYPES = {"oi_close_change_99_9_pctl+", "oi_close_change_99_9_pctl-"}
 REQUIRED_COLUMNS = {"tradedate", "tradetime", "secid", "alert_type"}
 
 REQUEST_TIMEOUT = 20      # секунд на запрос
@@ -68,6 +77,9 @@ LABELS = {
     "pr_change_min": "Рекордное падение за минуту",
     "pr_high_max": "Максимум цены за 90 дней",
     "pr_low_min": "Минимум цены за 90 дней",
+    # Из алертов фьючерса на акцию: сколько контрактов открыто, скачок — крупный вход или выход.
+    "oi_close_change_99_9_pctl+": "Резкий рост открытого интереса",
+    "oi_close_change_99_9_pctl-": "Резкое падение открытого интереса",
 }
 # Не присылаются по решению владельца (22.10.2026): общий объём за минуту без направления сделок.
 SKIPPED_TYPES = {"vol_99_9_pctl", "vol_max"}
@@ -98,10 +110,10 @@ def apim_opener():
     return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect)
 
 
-def get_page(opener, token, day, start):
+def get_page(opener, token, day, start, market="eq"):
     """Одна страница ответа как dict; None, если за день данных нет (404)."""
     query = urllib.parse.urlencode({"date": day.isoformat(), "start": start})
-    return request_json(opener, token, f"{APIM_URL}?{query}")
+    return request_json(opener, token, f"{APIM_URL.format(market=market)}?{query}")
 
 
 def request_json(opener, token, url, timeout=REQUEST_TIMEOUT):
@@ -163,12 +175,12 @@ def parse_page(page):
     return rows, total
 
 
-def fetch_day(opener, token, day, deadline):
+def fetch_day(opener, token, day, deadline, market="eq"):
     rows, start = [], 0
     for _ in range(MAX_PAGES):
         if time.monotonic() > deadline:
             raise ApimError("timeout")
-        page = get_page(opener, token, day, start)
+        page = get_page(opener, token, day, start, market)
         if page is None:
             break
         page_rows, total = parse_page(page)
@@ -198,6 +210,50 @@ def select(rows, day):
                 "time": moment.strftime("%H:%M:%S"),
                 "minute": moment.hour * 60 + moment.minute,
                 "secid": secid,
+                "type": str(row["alert_type"]),
+            })
+        except (KeyError, ValueError):
+            bad += 1
+    if bad:
+        print(f"Mega Alerts: пропущено битых строк: {bad}", file=sys.stderr)
+    return alerts
+
+
+def nearest_contract(day):
+    """Окончание кода ближайшего фьючерса на акцию на этот день: «Z6» — декабрь 2026.
+
+    Фьючерсы на акции — квартальные, экспирация в третью пятницу марта, июня, сентября и декабря; последний
+    день торгов — четверг перед ней (ISS LASTTRADEDATE: SRU6 — 17.09.2026), в пятницу торгов уже нет.
+    В последний день торгов это ещё истекающий контракт, с пятницы — следующий. Перенос из-за праздника
+    не учитывается. Вечные (SBERF) сюда не попадают: в конце кода нет цифры года.
+    """
+    year, month = day.year, day.month
+    while True:
+        if month in QUARTER_CODES:
+            first = date(year, month, 1)
+            if day <= first + timedelta(days=(4 - first.weekday()) % 7 + 13):
+                return f"{QUARTER_CODES[month]}{year % 10}"
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def select_oi(rows, day):
+    """Алерты открытого интереса (OI_TYPES) ближайших фьючерсов на наши акции за этот день —
+    как алерты самой акции: secid — тикер акции, а не контракта."""
+    alerts, bad = [], 0
+    nearest = nearest_contract(day)
+    for row in rows:
+        secid, asset = row.get("secid"), row.get("asset_code")
+        if not isinstance(secid, str) or not isinstance(asset, str) or str(row.get("tradedate")) != day.isoformat():
+            continue
+        share = SHARE_ASSETS.get(asset, asset)
+        if share not in SECIDS or not secid.endswith(nearest) or str(row.get("alert_type")) not in OI_TYPES:
+            continue
+        try:
+            moment = datetime.strptime(str(row["tradetime"])[:8], "%H:%M:%S")
+            alerts.append({
+                "time": moment.strftime("%H:%M:%S"),
+                "minute": moment.hour * 60 + moment.minute,
+                "secid": share,
                 "type": str(row["alert_type"]),
             })
         except (KeyError, ValueError):
@@ -412,7 +468,8 @@ def deliver(text, secid):
 
 
 def load_state(kid):
-    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False}
+    fresh = {"kid": kid, "date": None, "seen": None, "error": None, "error_count": 0, "error_notified": False,
+             "oi": False}
     if not STATE_FILE.exists():
         return fresh
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -515,27 +572,46 @@ def main():
     register_ok(state)
     alerts = select(rows, today)
 
+    # Открытый интерес вторичен: сбой срочного рынка не задерживает акции и не шлёт «недоступны».
+    # state["oi"] — открытый интерес уже подключён; хвост за вчера — только тогда.
+    try:
+        fo_tail = fetch_day(opener, token, yesterday, deadline, "fo") if catch_up and state["oi"] else []
+        fo_rows = fetch_day(opener, token, today, deadline, "fo")
+    except ApimError as e:
+        print(f"Mega Alerts: открытый интерес недоступен: {e.code}", file=sys.stderr)
+        fo_tail, fo_rows = [], None
+    oi = select_oi(fo_rows, today) if fo_rows is not None else []
+
     if not baselined or state["date"] not in (today.isoformat(), yesterday.isoformat()):
         # Первый успешный запрос (или разрыв больше суток): запоминаем день молча, без потока с утра.
-        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts}))
+        state.update(date=today.isoformat(), seen=sorted({keys.of(today, a) for a in alerts + oi}),
+                     oi=fo_rows is not None)
         save_state(state)
-        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}")
+        print(f"Mega Alerts: базовая точка, строк за день {len(rows)}, по нашим тикерам {len(alerts)}, "
+              f"открытый интерес {len(oi)}")
         return
 
     ratings = Ratings()
     moves = PriceMoves(opener, token, time.monotonic() + CANDLES_DEADLINE)
     if catch_up:
-        tail = select(tail_rows, yesterday)
+        tail = select(tail_rows, yesterday) + select_oi(fo_tail, yesterday)
         new, repeats, parts = process(state, keys, yesterday, tail, now, header=f"За {yesterday:%d.%m}:",
                                        ratings=ratings, moves=moves)
         print(f"Mega Alerts: хвост за {yesterday:%d.%m}: строк {len(tail_rows)}, по нашим тикерам {len(tail)}, "
               f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
         state.update(date=today.isoformat(), seen=[])
 
-    new, repeats, parts = process(state, keys, today, alerts, now, ratings=ratings, moves=moves)
+    # После хвоста: он обнуляет seen и стёр бы эту базовую точку.
+    if fo_rows is not None and not state["oi"]:
+        # Открытый интерес подключён к работающему боту: уже вышедшие за день — молча, как базовая точка.
+        state.update(seen=sorted(set(state["seen"]) | {keys.of(today, a) for a in oi}), oi=True)
+        save_state(state)
+        print(f"Mega Alerts: базовая точка открытого интереса, алертов {len(oi)}")
+
+    new, repeats, parts = process(state, keys, today, alerts + oi, now, ratings=ratings, moves=moves)
     save_state(state)
-    print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, новых {new}, "
-          f"повторов {repeats}, отправлено сообщений {parts}")
+    print(f"Mega Alerts: строк за день {len(rows)}, по нашим тикерам {len(alerts)}, открытый интерес {len(oi)}, "
+          f"новых {new}, повторов {repeats}, отправлено сообщений {parts}")
 
 
 if __name__ == "__main__":
