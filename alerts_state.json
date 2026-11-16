@@ -101,8 +101,8 @@
   "f8badfc5b7c4f611",
   "fc9b4c179bce2de9"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
