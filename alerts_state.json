@@ -19,8 +19,8 @@
   "e30bda6431e63c87",
   "ebeb902378311db7"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
