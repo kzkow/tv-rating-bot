@@ -45,8 +45,8 @@
   "fa4d0fcfd977f16c",
   "faeec4a2e266992b"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false,
  "oi": true
 }
