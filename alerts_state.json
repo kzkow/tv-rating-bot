@@ -5,8 +5,8 @@
   "49f7853d546dad78",
   "d026f4fb621b589a"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
