@@ -52,8 +52,8 @@
   "f0c365f5fac8ad13",
   "f23f9580648d276f"
  ],
- "error": null,
- "error_count": 0,
+ "error": "сеть",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
