@@ -96,8 +96,8 @@
   "fc780f65b21d7b14",
   "fdfed4f9fce41dfa"
  ],
- "error": "timeout",
- "error_count": 1,
+ "error": null,
+ "error_count": 0,
  "error_notified": false,
  "oi": true
 }
