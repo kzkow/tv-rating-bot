@@ -1,7 +1,10 @@
 {
  "kid": "7bfdaf03",
  "date": "2026-11-26",
- "seen": [],
+ "seen": [
+  "0c10278811827d91",
+  "3b23f0262aff2eed"
+ ],
  "error": null,
  "error_count": 0,
  "error_notified": false,
