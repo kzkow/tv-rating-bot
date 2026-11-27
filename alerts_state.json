@@ -82,8 +82,8 @@
   "fbf4a8a6dec1c1fc",
   "fe7290626dd8f462"
  ],
- "error": null,
- "error_count": 0,
+ "error": "timeout",
+ "error_count": 1,
  "error_notified": false,
  "oi": true
 }
